@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { @apply bg-white text-gray-900; }
+.card { @apply bg-white rounded-2xl shadow-lg p-4; }
+.btn { @apply px-4 py-2 rounded-xl font-medium; }
+.btn-primary { @apply bg-brand1 text-white hover:opacity-90; }
+.btn-secondary { @apply bg-brand2 text-gray-900 hover:opacity-95; }
+.input, .select { @apply w-full mt-1 border rounded-xl p-2; }
+.badge { @apply inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-brand2; }
