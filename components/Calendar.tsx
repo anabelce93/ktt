@@ -2,6 +2,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 
+// ➜ AÑADE ESTOS 2 IMPORTS
+import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
+import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
+
+// ➜ Y ACTÍVALOS
+dayjs.extend(isSameOrAfter);
+dayjs.extend(isSameOrBefore);
+
 type DayItem = { date: string; show: boolean; priceFrom: number | null; baseFare: number };
 type MonthPayload = { origin: string; pax: number; year: number; month: number; days: DayItem[] };
 
