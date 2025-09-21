@@ -7,22 +7,33 @@ type SegmentInfo = {
   marketing_carrier: string;
   origin: string;
   destination: string;
-  departure: string;
-  arrival: string;
-  duration_minutes: number;
-  stops?: number;
-  connection_airport?: string;
-  connection_minutes?: number;
+  departure: string;        // ISO
+  arrival: string;          // ISO
+  duration_minutes: number; // duración del segmento
+  // campos opcionales que rellenamos en el backend para el primer segmento:
+  stops?: number;                 // 0 o 1
+  connection_airport?: string;    // IATA
+  connection_minutes?: number;    // minutos de conexión
 };
 
 type Option = {
   id: string;
-  delta_vs_base_eur: number;
-  out: SegmentInfo[];
-  ret: SegmentInfo[];
+  delta_vs_base_eur: number; // +Δ€ vs la opción base (0 si es la más barata)
+  out: SegmentInfo[];        // ida (1 o 2 segmentos)
+  ret: SegmentInfo[];        // vuelta (1 o 2 segmentos)
   baggage_included: boolean;
   cabin: "Economy";
 };
+
+type DiagItem = { dest: string; count?: number; error?: string };
+
+// Parser defensivo del payload
+function extractOptions(j: any): Option[] {
+  if (j && Array.isArray(j.options)) return j.options as Option[];
+  if (j && j.data && Array.isArray(j.data.options)) return j.data.options as Option[];
+  if (Array.isArray(j)) return j as Option[];
+  return [];
+}
 
 export default function FlightsList({
   origin,
@@ -42,19 +53,42 @@ export default function FlightsList({
   const [loading, setLoading] = useState(true);
   const [options, setOptions] = useState<Option[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [diag, setDiag] = useState<DiagItem[] | null>(null);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     setOptions([]);
-    const url = `/api/flight-options?origin=${encodeURIComponent(origin)}&departure=${encodeURIComponent(departure)}&return=${encodeURIComponent(ret)}&pax=${pax}`;
+    setDiag(null);
+
+    const url = `/api/flight-options?origin=${encodeURIComponent(
+      origin
+    )}&departure=${encodeURIComponent(departure)}&return=${encodeURIComponent(
+      ret
+    )}&pax=${pax}`;
+
     fetch(url, { cache: "no-store" })
       .then(async (r) => {
-        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-        return r.json();
+        const txt = await r.text();
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText} ${txt}`);
+        try {
+          return JSON.parse(txt);
+        } catch {
+          return {};
+        }
       })
-      .then((j) => setOptions(j?.options || []))
-      .catch((e) => setError(String(e)))
+      .then((j) => {
+        if (j?.diag) setDiag(j.diag as DiagItem[]);
+        const arr = extractOptions(j);
+        setOptions(arr);
+        // eslint-disable-next-line no-console
+        console.log("flight-options payload (count)", arr.length, j);
+      })
+      .catch((e) => {
+        setError(String(e));
+        // eslint-disable-next-line no-console
+        console.error("flight-options error", e);
+      })
       .finally(() => setLoading(false));
   }, [origin, departure, ret, pax]);
 
@@ -76,7 +110,7 @@ export default function FlightsList({
     const conn = s0?.connection_minutes ?? null;
     const airline = airlineName(s0?.marketing_carrier);
     return (
-      <div className="flex-1">
+      <div className="flex-1 min-w-0">
         <div className="text-xs font-semibold mb-1">{label}</div>
         {s1 ? (
           <>
@@ -106,23 +140,49 @@ export default function FlightsList({
       </div>
 
       {loading && <div className="text-sm opacity-70">Cargando opciones…</div>}
-      {error && <div className="text-sm text-red-600">Error: {error}</div>}
+      {error && <div className="text-sm text-red-600">Error al cargar opciones: {error}</div>}
+
+      {!loading && !error && (
+        <div className="text-xs opacity-70 mb-2">Opciones encontradas: {options.length}</div>
+      )}
+
       {!loading && !error && options.length === 0 && (
-        <div className="text-sm opacity-70">No hay combinaciones disponibles para esa fecha.</div>
+        <div className="text-sm opacity-80">
+          No hay combinaciones disponibles para esa fecha.
+          {diag && (
+            <div className="mt-2 rounded-lg border p-2 text-xs">
+              <div className="font-semibold mb-1">Diagnóstico</div>
+              {diag.map((d, i) => (
+                <div key={i} className="mb-1">
+                  <span className="font-medium">{d.dest}:</span>{" "}
+                  {typeof d.count === "number" ? (
+                    <span>{d.count} opciones</span>
+                  ) : d.error ? (
+                    <span className="text-red-600">{d.error}</span>
+                  ) : (
+                    <span>—</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {!loading && !error && options.map((opt) => (
         <div key={opt.id} className="border rounded-2xl p-4 mb-4">
-          <div className="flex items-start gap-4">
-            {/* Columna IDA */}
+          <div className="flex flex-col md:flex-row md:items-start gap-4">
+            {/* IDA */}
             <TripCol label="IDA" segs={opt.out} />
-            {/* Separador */}
+
+            {/* Separador vertical en desktop */}
             <div className="hidden md:block w-px bg-gray-200 mx-2" />
-            {/* Columna VUELTA */}
+
+            {/* VUELTA */}
             <TripCol label="VUELTA" segs={opt.ret} />
 
-            {/* Lateral derecho con precio y CTA */}
-            <div className="ml-auto flex flex-col items-end gap-2">
+            {/* Lateral derecho con delta y CTA */}
+            <div className="md:ml-auto flex flex-row md:flex-col items-center md:items-end gap-2 md:min-w-[140px]">
               <div className="text-base font-semibold">
                 {opt.delta_vs_base_eur === 0 ? "+0 €" : `+${opt.delta_vs_base_eur} €`}
               </div>
