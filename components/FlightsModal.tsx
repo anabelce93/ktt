@@ -1,29 +1,39 @@
+// components/FlightsModal.tsx
 "use client";
 import React, { useEffect, useState } from "react";
-import dayjs from "dayjs";
-import { fmtHM } from "@/lib/utils";
+import { airlineName } from "@/lib/airlines";
+import { formatDuration, hhmm } from "@/lib/format";
 
-type Seg = {
-  marketing_carrier: string;
-  marketing_flight_number?: string;
-  operating_carrier?: string;
-  origin: string;
-  destination: string;
-  departure: string;
-  arrival: string;
-  duration_minutes: number;
-  stops: number;
-  connection_airport?: string;
-  connection_minutes?: number;
+type SegmentInfo = {
+  marketing_carrier: string;           // IATA (QR, TK, etc.)
+  origin: string;                      // IATA aeropuerto (BCN)
+  destination: string;                 // IATA (DOH / ICN)
+  departure: string;                   // ISO
+  arrival: string;                     // ISO
+  duration_minutes: number;            // duración del segmento
+  // en el primer segmento de cada trayecto añadimos:
+  stops?: number;                      // 0 o 1 (máx 1 escala por trayecto)
+  connection_airport?: string;         // IATA de conexión (si hay)
+  connection_minutes?: number;         // duración de la conexión
 };
 
-type Opt = {
+type Option = {
   id: string;
-  delta_vs_base_eur: number;
-  out: Seg[];
-  ret: Seg[];
+  delta_vs_base_eur: number;           // +Δ€ vs la opción más barata
+  out: SegmentInfo[];                  // ida (1 o 2 segmentos)
+  ret: SegmentInfo[];                  // vuelta (1 o 2 segmentos)
   baggage_included: boolean;
-  cabin: string;
+  cabin: "Economy";
+};
+
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  origin: string;
+  departure: string;
+  ret: string;
+  pax: number;
+  onSelect: (id: string) => void;
 };
 
 export default function FlightsModal({
@@ -34,135 +44,185 @@ export default function FlightsModal({
   ret,
   pax,
   onSelect,
-}: {
-  open: boolean;
-  onClose: () => void;
-  origin: string;
-  departure: string;
-  ret: string;
-  pax: number;
-  onSelect: (optId: string) => void;
-}) {
+}: Props) {
   const [loading, setLoading] = useState(false);
-  const [opts, setOpts] = useState<Opt[]>([]);
+  const [options, setOptions] = useState<Option[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || !departure || !ret) return;
+    if (!open) return;
     setLoading(true);
-    fetch(
-      `/api/flight-options?origin=${origin}&departure=${departure}&return=${ret}&pax=${pax}`
-    )
-      .then((r) => r.json())
-      .then((j) => {
-        setOpts(j.options || []);
-        setLoading(false);
+    setError(null);
+    setOptions([]);
+
+    const url = `/api/flight-options?origin=${encodeURIComponent(
+      origin
+    )}&departure=${encodeURIComponent(departure)}&return=${encodeURIComponent(
+      ret
+    )}&pax=${pax}`;
+
+    fetch(url, { cache: "no-store" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        return r.json();
       })
-      .catch(() => setLoading(false));
+      .then((json) => {
+        const arr: Option[] = json?.options || [];
+        setOptions(arr);
+        if (arr.length === 0) {
+          // Si quieres ver diagnóstico, puedes inspeccionar json.diag en la consola
+          // console.log("diag", json?.diag);
+        }
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
   }, [open, origin, departure, ret, pax]);
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center">
-      <div className="bg-white w-full md:w-[720px] max-h-[90vh] rounded-t-2xl md:rounded-2xl overflow-auto p-4">
+  // Componente pequeño para mostrar un tramo
+  const Leg: React.FC<{
+    from?: string; to?: string; dep?: string; arr?: string; dur?: number | null;
+  }> = ({ from, to, dep, arr, dur }) => (
+    <div className="text-sm">
+      <div className="font-medium">
+        {from} {hhmm(dep)} → {to} {hhmm(arr)}
+      </div>
+      <div className="opacity-70">Duración: {formatDuration(dur ?? undefined)}</div>
+    </div>
+  );
+
+  const Card: React.FC<{ opt: Option }> = ({ opt }) => {
+    // IDA
+    const outSegs = opt.out;
+    const out0 = outSegs[0];
+    const out1 = outSegs[1];
+    const outConnMins = out0?.connection_minutes ?? null;
+    const outAirline = airlineName(out0?.marketing_carrier);
+
+    // VUELTA
+    const retSegs = opt.ret;
+    const ret0 = retSegs[0];
+    const ret1 = retSegs[1];
+    const retConnMins = ret0?.connection_minutes ?? null;
+    const retAirline = airlineName(ret0?.marketing_carrier);
+
+    return (
+      <div className="border rounded-xl p-4 mb-3">
+        {/* Cabecera */}
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-semibold">
-            Vuelos para {dayjs(departure).format("DD/MM")} →{" "}
-            {dayjs(ret).format("DD/MM")}
-          </h3>
-          <button className="btn btn-secondary" onClick={onClose}>
-            Cerrar
+          <div className="text-xs uppercase tracking-wide opacity-70">{opt.cabin}</div>
+          <div className="text-base font-semibold">
+            {opt.delta_vs_base_eur === 0 ? "+0 €" : `+${opt.delta_vs_base_eur} €`}
+          </div>
+        </div>
+
+        {/* IDA */}
+        <div className="mb-3">
+          <div className="text-xs font-semibold mb-1">IDA</div>
+          {out1 ? (
+            <>
+              <Leg
+                from={out0.origin}
+                to={out0.destination}
+                dep={out0.departure}
+                arr={out0.arrival}
+                dur={out0.duration_minutes}
+              />
+              {outConnMins != null && (
+                <div className="my-1 text-xs opacity-70">
+                  Conexión en <span className="font-medium">{out0.destination}</span> · {formatDuration(outConnMins)}
+                </div>
+              )}
+              <Leg
+                from={out1.origin}
+                to={out1.destination}
+                dep={out1.departure}
+                arr={out1.arrival}
+                dur={out1.duration_minutes}
+              />
+            </>
+          ) : (
+            <Leg
+              from={out0?.origin}
+              to={out0?.destination}
+              dep={out0?.departure}
+              arr={out0?.arrival}
+              dur={out0?.duration_minutes}
+            />
+          )}
+          <div className="mt-1 text-xs">Aerolínea: {outAirline}</div>
+        </div>
+
+        {/* VUELTA */}
+        <div className="mb-2">
+          <div className="text-xs font-semibold mb-1">VUELTA</div>
+          {ret1 ? (
+            <>
+              <Leg
+                from={ret0.origin}
+                to={ret0.destination}
+                dep={ret0.departure}
+                arr={ret0.arrival}
+                dur={ret0.duration_minutes}
+              />
+              {retConnMins != null && (
+                <div className="my-1 text-xs opacity-70">
+                  Conexión en <span className="font-medium">{ret0.destination}</span> · {formatDuration(retConnMins)}
+                </div>
+              )}
+              <Leg
+                from={ret1.origin}
+                to={ret1.destination}
+                dep={ret1.departure}
+                arr={ret1.arrival}
+                dur={ret1.duration_minutes}
+              />
+            </>
+          ) : (
+            <Leg
+              from={ret0?.origin}
+              to={ret0?.destination}
+              dep={ret0?.departure}
+              arr={ret0?.arrival}
+              dur={ret0?.duration_minutes}
+            />
+          )}
+          <div className="mt-1 text-xs">Aerolínea: {retAirline}</div>
+        </div>
+
+        {/* Extras + botón */}
+        <div className="text-xs opacity-70 mb-2">
+          {opt.baggage_included ? "Maleta incluida · " : ""}
+          Cabina: {opt.cabin}
+        </div>
+
+        <div className="flex justify-end">
+          <button className="btn btn-primary" onClick={() => onSelect(opt.id)}>
+            Elegir este vuelo
           </button>
         </div>
+      </div>
+    );
+  };
 
-        {loading && (
-          <div className="text-sm text-gray-600">Buscando opciones…</div>
-        )}
-        {!loading && opts.length === 0 && (
-          <div className="text-sm">
-            No hay combinaciones disponibles con nuestras condiciones.
-          </div>
-        )}
-
-        <div className="space-y-3">
-          {opts.map((o) => (
-            <div key={o.id} className="border rounded-2xl p-3">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold">
-                  +{o.delta_vs_base_eur} €
-                </div>
-                <div className="space-x-2">
-                  <span className="badge">Maleta incluida</span>
-                  <span className="badge">Economy</span>
-                </div>
-              </div>
-              <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">IDA</div>
-                  {o.out.length > 0 && (
-                    <div className="text-sm">
-                      <div>
-                        <strong>{o.out[0].origin}</strong>{" "}
-                        {fmtHM(o.out[0].departure)} →{" "}
-                        <strong>{o.out[o.out.length - 1].destination}</strong>{" "}
-                        {fmtHM(o.out[o.out.length - 1].arrival)}
-                      </div>
-                      <div>
-                        Duración aprox. {Math.round((o.out[0].duration_minutes || 0) / 60)}h
-                      </div>
-                      <div>
-                        {(o.out[0].stops || 0)} escala(s)
-                        {o.out[0].connection_airport
-                          ? `, conexión en ${o.out[0].connection_airport} ~${o.out[0].connection_minutes} min`
-                          : ""}
-                      </div>
-                      <div>
-                        Aerolínea: {o.out[0].marketing_carrier}
-                        {o.out[0].operating_carrier
-                          ? ` (operado por ${o.out[0].operating_carrier})`
-                          : ""}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">VUELTA</div>
-                  {o.ret.length > 0 && (
-                    <div className="text-sm">
-                      <div>
-                        <strong>{o.ret[0].origin}</strong>{" "}
-                        {fmtHM(o.ret[0].departure)} →{" "}
-                        <strong>{o.ret[o.ret.length - 1].destination}</strong>{" "}
-                        {fmtHM(o.ret[o.ret.length - 1].arrival)}
-                      </div>
-                      <div>
-                        Duración aprox. {Math.round((o.ret[0].duration_minutes || 0) / 60)}h
-                      </div>
-                      <div>
-                        {(o.ret[0].stops || 0)} escala(s)
-                        {o.ret[0].connection_airport
-                          ? `, conexión en ${o.ret[0].connection_airport} ~${o.ret[0].connection_minutes} min`
-                          : ""}
-                      </div>
-                      <div>
-                        Aerolínea: {o.ret[0].marketing_carrier}
-                        {o.ret[0].operating_carrier
-                          ? ` (operado por ${o.ret[0].operating_carrier})`
-                          : ""}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="mt-3 text-right">
-                <button className="btn btn-primary" onClick={() => onSelect(o.id)}>
-                  Seleccionar
-                </button>
-              </div>
-            </div>
-          ))}
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end md:items-center justify-center">
+      <div className="bg-white w-full md:max-w-lg md:rounded-2xl p-4 max-h-[90vh] overflow-auto">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-lg font-semibold">Vuelos disponibles</div>
+          <button className="btn btn-secondary" onClick={onClose}>Cerrar</button>
         </div>
+
+        {loading && <div className="text-sm opacity-70">Cargando opciones…</div>}
+        {error && <div className="text-sm text-red-600">Error: {error}</div>}
+        {!loading && !error && options.length === 0 && (
+          <div className="text-sm opacity-70">No hay combinaciones disponibles para esa fecha.</div>
+        )}
+
+        {!loading && !error && options.map((opt) => <Card key={opt.id} opt={opt} />)}
       </div>
     </div>
   );
 }
+
