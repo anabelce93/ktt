@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { buildCalendarGrid, addDaysISO } from "@/lib/calendar";
-import { cheapestFor } from "@/lib/duffel";
 import { TRIP_LEN, CalendarDay, CalendarPayload, RoundTripSearch } from "@/lib/types";
+import { searchRoundTripBoth } from "@/lib/duffel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +16,7 @@ export async function GET(req: Request) {
   const pax = Number(searchParams.get("pax") || 2);
   const year = Number(searchParams.get("year"));
   const month = Number(searchParams.get("month"));
+  const debug = searchParams.get("debug") === "1";
 
   if (!year || !month) {
     return NextResponse.json({ error: "year y month requeridos" }, { status: 400 });
@@ -28,17 +29,21 @@ export async function GET(req: Request) {
   for (const cell of grid.filter(c => c.inMonth)) {
     const dep = cell.dateISO;
     const ret = addDaysISO(dep, TRIP_LEN - 1);
-    const { price, diag } = await cheapestFor({ origin, dep, ret, pax } as RoundTripSearch);
-    if (!firstDiag && diag) firstDiag = diag; // guardamos 1ª diag para inspección
+
+    // pedimos solo 1 (más barato)
+    const { options, diag } = await searchRoundTripBoth({ origin, dep, ret, pax, limit: 1 } as RoundTripSearch);
+    if (!firstDiag && diag) firstDiag = diag; // guarda el primer diag para mostrarlo
+
+    const cheapest = options[0]?.total_amount_per_person ?? null;
     days.push({
       date: dep,
-      show: price !== null,
-      priceFrom: price,
+      show: cheapest !== null,
+      priceFrom: cheapest,
       baseFare: BASE_FARE,
     });
   }
 
   const payload: CalendarPayload & { diag?: any } = { origin, pax, year, month, days };
-  if (firstDiag) payload.diag = firstDiag;
+  if (debug && firstDiag) payload.diag = firstDiag;
   return NextResponse.json(payload);
 }
