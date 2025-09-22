@@ -1,6 +1,6 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
-import { airlineName } from "@/lib/airlines";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { airlineName, AirlineLogo, AIRLINE_LIST_FOR_LOADER } from "@/lib/airlines";
 import { formatDuration, hhmm } from "@/lib/format";
 
 type SegmentInfo = {
@@ -26,19 +26,6 @@ type Option = {
 
 type DiagItem = { dest: string; count?: number; error?: string };
 
-const AIRLINE_LOGOS = [
-  { code: "QR", name: "Qatar Airways" },
-  { code: "TK", name: "Turkish Airlines" },
-  { code: "KE", name: "Korean Air" },
-  { code: "OZ", name: "Asiana" },
-  { code: "AF", name: "Air France" },
-  { code: "KL", name: "KLM" },
-  { code: "LH", name: "Lufthansa" },
-  { code: "IB", name: "Iberia" },
-  { code: "UX", name: "Air Europa" },
-  { code: "BA", name: "British Airways" },
-];
-
 function extractOptions(j: any): Option[] {
   if (j && Array.isArray(j.options)) return j.options as Option[];
   if (j && j.data && Array.isArray(j.data.options)) return j.data.options as Option[];
@@ -46,35 +33,67 @@ function extractOptions(j: any): Option[] {
   return [];
 }
 
-// Loader con barra y “logos” (texto + chip)
-function FancyLoader() {
+/** Loader con:
+ *  - Una aerolínea visible a la vez (rota)
+ *  - Barra que progresa 0→100% una sola vez. Llega a ~90% y espera a datos para completar.
+ */
+function FancyLoaderOneByOne({
+  done,
+}: {
+  done: boolean;
+}) {
   const [idx, setIdx] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const rafRef = useRef<number | null>(null);
+
+  // Rota aerolíneas una a una
   useEffect(() => {
-    const t = setInterval(() => setIdx((i) => (i + 1) % AIRLINE_LOGOS.length), 500);
+    const t = setInterval(() => {
+      setIdx((i) => (i + 1) % AIRLINE_LIST_FOR_LOADER.length);
+    }, 450);
     return () => clearInterval(t);
   }, []);
-  const pct = useMemo(() => ((idx + 1) / AIRLINE_LOGOS.length) * 100, [idx]);
-  const current = AIRLINE_LOGOS[idx];
+
+  // Progreso suave 0→~90, y al terminar datos, 100
+  useEffect(() => {
+    let mounted = true;
+    const targetWhileLoading = 90; // % máximo antes de datos
+    const tick = () => {
+      setProgress((p) => {
+        const target = done ? 100 : targetWhileLoading;
+        const speed = done ? 6 : 1.2; // acelera al cierre
+        const next = p + speed;
+        return Math.min(next, target);
+      });
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      mounted = false;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [done]);
+
+  const current = AIRLINE_LIST_FOR_LOADER[idx];
 
   return (
     <div className="rounded-2xl border p-4">
       <div className="text-sm font-medium mb-2">Buscando las mejores ofertas…</div>
       <div className="w-full h-2 bg-gray-100 rounded overflow-hidden mb-3">
         <div
-          className="h-2 bg-[#bdcbcd] transition-all"
-          style={{ width: `${pct}%` }}
+          className="h-2 transition-all"
+          style={{
+            width: `${progress}%`,
+            backgroundColor: "#bdcbcd",
+          }}
           aria-hidden
         />
       </div>
-      <div className="flex flex-wrap gap-2 text-xs">
-        {AIRLINE_LOGOS.map((a, i) => (
-          <div
-            key={a.code}
-            className={`px-2 py-1 rounded-full border ${i === idx ? "bg-[#f8fafa] border-[#91c5c5] text-[#2b3d3d]" : "opacity-60"}`}
-          >
-            {a.name} ({a.code})
-          </div>
-        ))}
+
+      <div className="flex items-center gap-3 text-sm">
+        <AirlineLogo code={current.code} size={22} />
+        <div className="font-medium">{current.name}</div>
+        <div className="text-xs opacity-60">({current.code})</div>
       </div>
     </div>
   );
@@ -133,47 +152,73 @@ export default function FlightsList({
       .finally(() => setLoading(false));
   }, [origin, departure, ret, pax]);
 
-  const Leg: React.FC<{ s?: SegmentInfo }> = ({ s }) => {
+  const LegBlock: React.FC<{ s?: SegmentInfo }> = ({ s }) => {
     if (!s) return null;
     return (
-      <div className="text-sm">
-        <div className="font-medium">
+      <div className="min-w-[200px]">
+        <div className="text-sm font-medium whitespace-nowrap">
           {s.origin} {hhmm(s.departure)} → {s.destination} {hhmm(s.arrival)}
         </div>
-        <div className="opacity-70">Duración: {formatDuration(s.duration_minutes)}</div>
+        <div className="text-xs opacity-70 mt-0.5">Duración: {formatDuration(s.duration_minutes)}</div>
+        <div className="flex items-center gap-1 mt-1 text-xs">
+          <AirlineLogo code={s.marketing_carrier} size={16} />
+          <span className="opacity-80">{airlineName(s.marketing_carrier)}</span>
+        </div>
       </div>
     );
   };
 
-  const TripBlock: React.FC<{ label: string; segs: SegmentInfo[] }> = ({ label, segs }) => {
+  const ConnectionChip: React.FC<{ airport?: string; minutes?: number }> = ({ airport, minutes }) => {
+    if (!airport || minutes == null) return null;
+    return (
+      <div className="flex flex-col items-center justify-center px-3">
+        <div className="inline-flex items-center gap-2 px-2 py-1 rounded-full border border-[#91c5c5] bg-[#e8f4f4] text-xs whitespace-nowrap">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#91c5c5]" />
+          1 escala en <strong>&nbsp;{airport}&nbsp;</strong>
+        </div>
+        <div className="text-xs opacity-70 mt-1">Escala: {formatDuration(minutes)}</div>
+      </div>
+    );
+  };
+
+  const TripRow: React.FC<{ label: string; segs: SegmentInfo[] }> = ({ label, segs }) => {
     const s0 = segs[0];
     const s1 = segs[1];
     const conn = s0?.connection_minutes ?? null;
-    const airline = airlineName(s0?.marketing_carrier);
 
     return (
       <div>
         <div className="text-xs font-semibold mb-1">{label}</div>
-        {s1 ? (
-          <>
-            <Leg s={s0} />
-            {conn != null && (
-              <div className="my-2">
-                <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-[#91c5c5] bg-[#e8f4f4]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#91c5c5]" />
-                  1 escala en <strong>{s0.destination}</strong> · {formatDuration(conn)}
-                </span>
-              </div>
-            )}
-            <Leg s={s1} />
-          </>
-        ) : (
-          <Leg s={s0} />
-        )}
-        <div className="mt-1 text-xs">Aerolínea: {airline}</div>
+        <div className="flex flex-col md:flex-row md:items-start md:gap-4">
+          {/* Tramo 1 */}
+          <LegBlock s={s0} />
+          {/* Conexión (solo si hay 2 segmentos) */}
+          {s1 ? <ConnectionChip airport={s0?.destination} minutes={conn ?? undefined} /> : null}
+          {/* Tramo 2 */}
+          {s1 ? <LegBlock s={s1} /> : null}
+        </div>
       </div>
     );
   };
+
+  // Botón color #91c5c5 custom
+  const SelectButton: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = (props) => (
+    <button
+      {...props}
+      className={`px-3 py-2 rounded-xl text-sm font-semibold transition
+        focus:outline-none focus:ring-2 focus:ring-offset-2`}
+      style={{
+        backgroundColor: "#91c5c5",
+        color: "#0b2b2b",
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#7bb2b2";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#91c5c5";
+      }}
+    />
+  );
 
   return (
     <div>
@@ -184,9 +229,10 @@ export default function FlightsList({
         <button className="btn btn-secondary" onClick={onBack}>Cambiar fecha</button>
       </div>
 
-      {loading && <FancyLoader />}
+      {/* Loader una sola pasada */}
+      {loading && <FancyLoaderOneByOne done={!loading} />}
 
-      {error && <div className="text-sm text-red-600">Error al cargar opciones: {error}</div>}
+      {error && <div className="text-sm text-red-600 mt-3">Error al cargar opciones: {error}</div>}
 
       {!loading && !error && (
         <div className="text-xs opacity-70 mb-2">Opciones encontradas: {options.length}</div>
@@ -217,7 +263,7 @@ export default function FlightsList({
 
       {!loading && !error && options.map((opt) => (
         <div key={opt.id} className="border rounded-2xl p-4 mb-4">
-          {/* Cabecera: delta y extras */}
+          {/* Cabecera */}
           <div className="flex items-start justify-between mb-3">
             <div className="text-xs uppercase tracking-wide opacity-70">{opt.cabin}</div>
             <div className="text-base font-semibold">
@@ -225,21 +271,20 @@ export default function FlightsList({
             </div>
           </div>
 
-          {/* Cuerpo: vertical IDA / VUELTA */}
-          <div className="space-y-4">
-            <TripBlock label="IDA" segs={opt.out} />
-            <div className="h-px bg-gray-200" />
-            <TripBlock label="VUELTA" segs={opt.ret} />
-          </div>
+          {/* IDA (fila) */}
+          <TripRow label="IDA" segs={opt.out} />
+          <div className="my-3 h-px bg-gray-200" />
+          {/* VUELTA (fila) */}
+          <TripRow label="VUELTA" segs={opt.ret} />
 
-          {/* Footer */}
+          {/* Pie */}
           <div className="mt-3 flex items-center justify-between">
             <div className="text-xs opacity-70">
               {opt.baggage_included ? "Maleta incluida · " : ""}Cabina: {opt.cabin}
             </div>
-            <button className="btn btn-primary" onClick={() => onSelect(opt.id)}>
-              Elegir vuelo
-            </button>
+            <SelectButton onClick={() => onSelect(opt.id)}>
+              Seleccionar
+            </SelectButton>
           </div>
         </div>
       ))}
