@@ -2,9 +2,8 @@
 import { NextResponse } from "next/server";
 import { searchRoundTripBoth } from "@/lib/duffel";
 
-function bad(msg: string, status = 400) {
-  return NextResponse.json({ ok: false, err: msg }, { status });
-}
+const bad = (msg: string, status = 400) =>
+  NextResponse.json({ ok: false, err: msg }, { status });
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -23,20 +22,14 @@ export async function GET(req: Request) {
     const { options, diag } = await searchRoundTripBoth({ origin, dep, ret, pax, limit, debug });
 
     if (!options.length) {
-      // Devolvemos diagnóstico para ver en consola del navegador por qué estamos a cero
       return NextResponse.json(
         { ok: false, err: "No options from Duffel", diag },
         { status: 502 }
       );
     }
 
-    return NextResponse.json(
-      { ok: true, origin, dep, ret, pax, options, diag: debug ? diag : undefined },
-      { status: 200 }
-    );
+    return NextResponse.json({ ok: true, origin, dep, ret, pax, options, diag: debug ? diag : undefined });
   } catch (e: any) {
-    const msg = typeof e?.message === "string" ? e.message : String(e);
-    console.error("flight-options FATAL", msg);
-    return NextResponse.json({ ok: false, err: msg }, { status: 500 });
+    return NextResponse.json({ ok: false, err: String(e?.message || e) }, { status: 500 });
   }
 }
