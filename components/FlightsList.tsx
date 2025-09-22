@@ -53,7 +53,7 @@ export default function FlightsList({
         if (!cancelled) {
           const arr = (j.options || []) as FlightOption[];
           setOptions(arr);
-          if (arr.length > 0) setSelectedId(arr[0].id); // marca la más barata por defecto
+          if (arr.length > 0) setSelectedId(arr[0].id); // marcar la más barata
         }
       } catch {
         if (!cancelled) setOptions([]);
@@ -96,6 +96,14 @@ export default function FlightsList({
         <div className="space-y-4 pb-24">
           {options.map((opt, idx) => {
             const selected = selectedId === opt.id;
+            const delta =
+              idx === 0
+                ? 0
+                : Math.round(
+                    opt.total_amount_per_person -
+                      options[0].total_amount_per_person
+                  );
+
             return (
               <div
                 key={opt.id}
@@ -110,15 +118,11 @@ export default function FlightsList({
                     </div>
                   </div>
                   <div className="text-sm font-semibold">
-                    {idx === 0
-                      ? "+0 €"
-                      : `+${Math.round(
-                          opt.total_amount_per_person - options[0].total_amount_per_person
-                        )} €`}
+                    {delta === 0 ? "+0 €" : `+${delta} €`}
                   </div>
                 </div>
 
-                {/* Grid horizontal: IDA | ESCALA (píldora) | VUELTA */}
+                {/* Grid horizontal: IDA | ESCALA | VUELTA */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
                   <LegBlock title="IDA" segs={opt.out} />
                   <ScalePill segs={opt.out} />
@@ -160,7 +164,6 @@ export default function FlightsList({
 /* ---- Subcomponentes de FlightsList ---- */
 
 function AirlineLogoRow({ codes }: { codes: string[] }) {
-  // muestra hasta 3 logos, un poco más grandes
   const top = codes.slice(0, 3);
   return (
     <div className="flex items-center gap-3">
@@ -168,7 +171,7 @@ function AirlineLogoRow({ codes }: { codes: string[] }) {
         <img
           key={code}
           src={`/airlines/${code}.svg`}
-          alt={airlineName[code] || code}
+          alt={airlineName(code) || code}
           style={{ height: 36, width: "auto", maxWidth: 160 }}
         />
       ))}
@@ -197,7 +200,7 @@ function LegBlock({ title, segs }: { title: string; segs: SegmentInfo[] }) {
           first.departure,
           segs.length > 1 ? segs[0].arrival : last.arrival
         )}{" "}
-        · {airlineName[first.marketing_carrier] || first.marketing_carrier}
+        · {airlineName(first.marketing_carrier) || first.marketing_carrier}
       </div>
 
       {/* Tramos siguientes si existen */}
@@ -212,7 +215,7 @@ function LegBlock({ title, segs }: { title: string; segs: SegmentInfo[] }) {
             </div>
             <div className="text-xs opacity-70">
               Duración: {formatDuration(s.departure, s.arrival)} ·{" "}
-              {airlineName[s.marketing_carrier] || s.marketing_carrier}
+              {airlineName(s.marketing_carrier) || s.marketing_carrier}
             </div>
           </div>
         ))}
@@ -220,9 +223,7 @@ function LegBlock({ title, segs }: { title: string; segs: SegmentInfo[] }) {
   );
 }
 
-/** 🔹 AHORA visible también en móvil: ya no usamos `hidden md:flex` */
 function ScalePill({ segs }: { segs: SegmentInfo[] }) {
-  // Si no hay escala, marcamos "Directo"
   if (!segs || segs.length < 2) {
     return (
       <div className="flex items-center justify-center">
@@ -234,7 +235,7 @@ function ScalePill({ segs }: { segs: SegmentInfo[] }) {
   const stops = segs.slice(0, -1).map((s) => s.destination);
   const stopCount = stops.length;
 
-  // Sumar el tiempo total de espera entre tramos
+  // Suma del tiempo total de espera entre tramos
   let totalLayoverMin = 0;
   for (let i = 0; i < segs.length - 1; i++) {
     totalLayoverMin += minutesBetween(segs[i].arrival, segs[i + 1].departure);
@@ -259,7 +260,7 @@ function ScalePill({ segs }: { segs: SegmentInfo[] }) {
 }
 
 function RotatingLogos() {
-  // rota una lista fija de códigos (asegúrate de tener estos SVGs en /public/airlines/)
+  // Asegúrate de tener estos SVGs en /public/airlines/
   const codes = ["KE", "OZ", "QR", "EK", "TK", "AY", "JL", "NH", "ET", "SU"];
   const [idx, setIdx] = useState(0);
   useEffect(() => {
@@ -279,7 +280,6 @@ function RotatingLogos() {
 }
 
 /* Utils locales */
-
 function minsToPretty(mins: number) {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
