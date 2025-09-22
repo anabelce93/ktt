@@ -7,15 +7,25 @@ type SegmentInfo = {
   destination: string;
   departure: string; // ISO
   arrival: string;   // ISO
+  connection_airport?: string;
+  connection_minutes?: number;
 };
 
 type OptionLike = {
   id: string;
   out: SegmentInfo[];
   ret: SegmentInfo[];
-  delta_vs_base_eur: number;     // +Δ€ vs opción base (por persona)
-  per_person_flight?: number;    // opcional: precio vuelo por persona (si tu backend lo manda)
+  delta_vs_base_eur: number;
+  per_person_flight?: number;
 };
+
+function evenUpTo(n: number, max: number) {
+  if (n <= 0) return 0;
+  let x = n;
+  if (x % 2 !== 0) x += 1;      // subir al siguiente par
+  if (x > max) x = max;         // no pasar del total de pax
+  return x;
+}
 
 export default function SummaryPanel({
   visible,
@@ -30,23 +40,24 @@ export default function SummaryPanel({
   pax: number;
   option: OptionLike | null;
   lux: boolean;
-  singleRooms: number;
+  singleRooms: number; // valor elegido por el usuario (puede ser impar)
   insurance: boolean;
-  baseFarePerPerson: number; // tarifa terrestre por persona según temporada/pax (ya calculada)
+  baseFarePerPerson: number;
 }) {
   const [openMobile, setOpenMobile] = useState(false);
 
-  // cálculos
-  const luxSupp = lux ? 400 : 0;       // €/persona
-  const singleSuppTotal = singleRooms * 280; // € total (no por persona)
-  const insSupp = insurance ? 100 : 0; // €/persona
+  // Ajuste lógico: habitaciones individuales efectivas (par y ≤ pax)
+  const effectiveSingles = useMemo(() => evenUpTo(singleRooms, pax), [singleRooms, pax]);
 
-  // Si el backend manda per_person_flight úsalo; si no, asumimos que delta_vs_base_eur ya va referido a base de vuelo
+  const luxSupp = lux ? 400 : 0;       // €/persona
+  const insSupp = insurance ? 100 : 0; // €/persona
+  const singleSuppTotal = effectiveSingles * 280; // 280 € por persona en individual (total)
+
   const perPersonFlight = option?.per_person_flight || 0;
   const delta = option?.delta_vs_base_eur || 0;
 
   const pricePerPerson = useMemo(() => {
-    // base terrestre + vuelo base (si lo tienes) + delta + suplementos por persona
+    // base terrestre + vuelo base (si lo hay) + delta + suplementos por persona
     return Math.round(baseFarePerPerson + perPersonFlight + delta + luxSupp + insSupp);
   }, [baseFarePerPerson, perPersonFlight, delta, luxSupp, insSupp]);
 
@@ -61,6 +72,15 @@ export default function SummaryPanel({
   const lastOut = option?.out?.slice(-1)[0];
   const firstRet = option?.ret?.[0];
   const lastRet = option?.ret?.slice(-1)[0];
+
+  // escalas (si hay 2 segmentos)
+  const outHasConn = (option?.out?.length || 0) > 1;
+  const retHasConn = (option?.ret?.length || 0) > 1;
+
+  const outConnAirport = firstOut?.connection_airport;
+  const outConnMinutes = firstOut?.connection_minutes;
+  const retConnAirport = firstRet?.connection_airport;
+  const retConnMinutes = firstRet?.connection_minutes;
 
   const content = (
     <div className="text-sm space-y-2">
@@ -80,6 +100,11 @@ export default function SummaryPanel({
             {" "}–{" "}
             {lastOut && `${hhmm(lastOut.arrival)}`}
           </div>
+          {outHasConn && outConnAirport && typeof outConnMinutes === "number" && (
+            <div className="opacity-70">
+              1 escala en <strong>{outConnAirport}</strong> · {Math.floor(outConnMinutes / 60)} h {outConnMinutes % 60} min
+            </div>
+          )}
 
           <div className="mt-2 font-medium">Viaje de vuelta</div>
           <div>
@@ -90,12 +115,19 @@ export default function SummaryPanel({
             {" "}–{" "}
             {lastRet && `${hhmm(lastRet.arrival)}`}
           </div>
+          {retHasConn && retConnAirport && typeof retConnMinutes === "number" && (
+            <div className="opacity-70">
+              1 escala en <strong>{retConnAirport}</strong> · {Math.floor(retConnMinutes / 60)} h {retConnMinutes % 60} min
+            </div>
+          )}
         </>
       )}
 
       <div className="mt-2 font-medium">Alojamiento</div>
       <div>{lux ? "Luxury (+400 €/persona)" : "Standard · Incluido"}</div>
-      {singleRooms > 0 && <div>Habitaciones individuales: {singleRooms} × +280 €</div>}
+      {effectiveSingles > 0 && (
+        <div>Habitaciones individuales: {effectiveSingles} × +280 €</div>
+      )}
 
       <div className="mt-2 font-medium">Seguro</div>
       <div>{insurance ? "Ampliado (+100 €/persona)" : "Básico · Incluido"}</div>
@@ -131,19 +163,28 @@ export default function SummaryPanel({
         <button className="btn btn-primary mt-3 w-full">Reservar</button>
       </div>
 
-      {/* Móvil: barra anclada con pestañita */}
+      {/* Móvil: hoja deslizable que NO ocupa todo el alto */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0">
+        {/* Pequeño “fondo” visible arriba */}
         <div className="mx-auto max-w-screen-sm">
-          <div className="bg-white border-t rounded-t-2xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
-            <div
-              className="flex items-center justify-between p-3"
+          <div
+            className="bg-white border-t rounded-t-2xl shadow-[0_-4px_20px_rgba(0,0,0,0.12)]"
+            style={{
+              maxHeight: openMobile ? "80vh" : "52px",
+              transition: "max-height 220ms ease",
+              overflow: "hidden",
+            }}
+          >
+            <button
+              className="w-full flex items-center justify-between p-3"
               onClick={() => setOpenMobile((o) => !o)}
+              aria-label={openMobile ? "Cerrar resumen" : "Abrir resumen"}
             >
               <div className="text-sm">
                 Total: <strong>{total.toLocaleString("es-ES")} €</strong>
               </div>
               <div className="text-sm opacity-70">{openMobile ? "▼" : "▲"}</div>
-            </div>
+            </button>
             {openMobile && (
               <div className="p-4 border-t">
                 {content}
@@ -156,4 +197,3 @@ export default function SummaryPanel({
     </>
   );
 }
-
