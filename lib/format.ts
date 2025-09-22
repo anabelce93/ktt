@@ -22,3 +22,20 @@ export function hhmm(iso: string | undefined): string {
     return iso.slice(11, 16); // fallback "HH:MM" del ISO
   }
 }
+export function formatDateES(iso?: string): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString("es-ES", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    // iso "YYYY-MM-DD" → "DD-MM-YYYY"
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+      const [y, m, d] = iso.split("-");
+      return `${d}-${m}-${y}`;
+    }
+    return iso;
+  }
+}
