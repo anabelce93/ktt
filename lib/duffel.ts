@@ -2,7 +2,7 @@
 import { RoundTripSearch, FlightOption, SegmentInfo } from "@/lib/types";
 
 const DUFFEL_TOKEN = process.env.DUFFEL_TOKEN!;
-const DUFFEL_VERSION = process.env.DUFFEL_VERSION!;
+const DUFFEL_VERSION = process.env.DUFFEL_VERSION!; // Debe existir en Vercel
 
 function parseDurationToMinutes(iso?: string) {
   if (!iso) return undefined;
@@ -36,10 +36,16 @@ export async function searchRoundTripBoth(
     cache: "no-store",
   });
   if (!r.ok) {
-    return { options: [], diag: { status: r.status, text: await r.text() } };
+    return { options: [], diag: { step: "offer_requests", status: r.status, text: await r.text() } };
   }
+
   const req = await r.json();
-  const offersUrl = req?.data?.offers?.links?.self || req?.data?.links?.offers;
+  const offersUrl =
+    req?.data?.offers?.links?.self || req?.data?.links?.offers || req?.data?.links?.offers_url;
+  if (!offersUrl) {
+    return { options: [], diag: { step: "extract_offers_url", body: req } };
+  }
+
   const r2 = await fetch(offersUrl, {
     headers: {
       Authorization: `Bearer ${DUFFEL_TOKEN}`,
@@ -48,42 +54,50 @@ export async function searchRoundTripBoth(
     cache: "no-store",
   });
   if (!r2.ok) {
-    return { options: [], diag: { status: r2.status, text: await r2.text() } };
+    return { options: [], diag: { step: "offers", status: r2.status, text: await r2.text() } };
   }
-  const offersRes = await r2.json();
-  const offers: any[] = offersRes?.data || [];
 
-  const options: FlightOption[] = offers.map((o) => {
-    const [outSlice, retSlice] = o.slices;
+  const offersRes = await r2.json();
+  const offers: any[] = offersRes?.data || offersRes?.offers || [];
+
+  const options: FlightOption[] = offers.map((o: any) => {
+    const [outSlice, retSlice] = o.slices || [];
     const mapSegs = (sl: any): SegmentInfo[] =>
-      sl.segments.map((sg: any) => ({
-        origin: sg.origin.iata_code,
-        destination: sg.destination.iata_code,
-        departure: sg.departing_at,
-        arrival: sg.arriving_at,
-        duration_minutes: parseDurationToMinutes(sg.duration),
-        marketing_carrier: sg.marketing_carrier?.iata_code,
+      (sl?.segments || []).map((sg: any) => ({
+        origin: sg?.origin?.iata_code,
+        destination: sg?.destination?.iata_code,
+        departure: sg?.departing_at,
+        arrival: sg?.arriving_at,
+        duration_minutes: parseDurationToMinutes(sg?.duration),
+        marketing_carrier: sg?.marketing_carrier?.iata_code,
       }));
 
-    const perPerson = Math.round(Number(o.total_amount) / pax);
+    const out = mapSegs(outSlice);
+    const retSegs = mapSegs(retSlice);
+
+    const perPerson = Math.round(Number(o.total_amount || 0) / pax);
+
+    const airlineCodes = new Set<string>();
+    [...out, ...retSegs].forEach(s => s.marketing_carrier && airlineCodes.add(s.marketing_carrier));
 
     return {
       id: o.id,
-      out: mapSegs(outSlice),
-      ret: mapSegs(retSlice),
-      baggage_included: Boolean(o.included_bags?.length),
-      cabin: o.cabin_class || "Economy",
+      out,
+      ret: retSegs,
+      baggage_included: Boolean(o?.included_bags || o?.baggage),
+      cabin: (o?.cabin_class || "Economy") as FlightOption["cabin"],
       total_amount_per_person: perPerson,
-      airline_codes: [...new Set([...mapSegs(outSlice), ...mapSegs(retSlice)]
-        .map(s => s.marketing_carrier).filter(Boolean))],
+      airline_codes: Array.from(airlineCodes),
     };
-  }).sort((a, b) => a.total_amount_per_person - b.total_amount_per_person)
-    .slice(0, limit);
+  })
+  .filter(o => Number.isFinite(o.total_amount_per_person) && o.total_amount_per_person > 0)
+  .sort((a, b) => a.total_amount_per_person - b.total_amount_per_person)
+  .slice(0, limit);
 
   return { options };
 }
 
-export async function cheapestFor(args: RoundTripSearch): Promise<number|null> {
+export async function cheapestFor(args: RoundTripSearch): Promise<number | null> {
   const { options } = await searchRoundTripBoth({ ...args, limit: 1 });
   return options[0]?.total_amount_per_person ?? null;
 }
