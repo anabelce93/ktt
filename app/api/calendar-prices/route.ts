@@ -29,7 +29,7 @@ export async function GET(req: Request) {
     const dep = cell.dateISO;
     const ret = addDaysISO(dep, TRIP_LEN - 1);
     const { price, diag } = await cheapestFor({ origin, dep, ret, pax } as RoundTripSearch);
-    if (!firstDiag && diag) firstDiag = diag; // guarda la primera diag para inspección
+    if (!firstDiag && diag) firstDiag = diag; // guardamos 1ª diag para inspección
     days.push({
       date: dep,
       show: price !== null,
