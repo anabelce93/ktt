@@ -12,6 +12,9 @@ body { @apply bg-white text-gray-900; }
 /* Botones base */
 .btn { @apply px-3 py-2 rounded-xl text-sm font-semibold transition; }
 
+/* Botones base */
+.btn { @apply px-3 py-2 rounded-xl text-sm font-semibold transition; }
+
 /* Siguiente / Seleccionar (#91c5c5) */
 .btn-primary {
   background-color: #91c5c5;
@@ -25,3 +28,4 @@ body { @apply bg-white text-gray-900; }
   color: #0b2b2b;
 }
 .btn-secondary:hover { background-color: #a9b9bb; }
+
