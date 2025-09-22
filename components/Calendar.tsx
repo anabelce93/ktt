@@ -17,8 +17,7 @@ function addDaysISO(iso: string, n: number) {
 
 function MonthSkeleton() {
   return (
-    <div className="w-full md:w-1/2">
-      {/* sin marco de mes */}
+    <div className="w-full md:w-1/2 md:flex-1">
       <div className="h-6 w-40 mx-auto rounded bg-gray-100 animate-pulse mb-3" />
       <div className="grid grid-cols-7 gap-2">
         {Array.from({ length: 42 }).map((_, i) => (
@@ -89,8 +88,7 @@ function MonthGrid({
   }
 
   return (
-    <div className="w-full md:w-1/2">
-      {/* sin borde marco; título centrado */}
+    <div className="w-full md:w-1/2 md:flex-1">
       <div className="text-sm font-semibold text-center mb-2">{title}</div>
 
       <div className="grid grid-cols-7 gap-1 text-[11px] font-semibold mb-1 opacity-70">
@@ -108,40 +106,24 @@ function MonthGrid({
             );
           }
 
-          const canPick = c.show; // se puede iniciar solo en días disponibles
+          const canPick = c.show;
           const priceVisible = c.priceFrom != null && (!c.inRange || c.isStart);
 
-          // COLORES
-          const GREEN_BG = "#e6f7ec";   // oferta (<1990) fondo verdecito
-          const YELLOW_BG = "#fff7e0";  // >=1990 fondo amarillo suave
-          const RANGE_START_BG = "#91c5c5"; // inicio seleccionado
-          const RANGE_BG = "#eaf6f6";       // resto del rango (suave del 91c5c5)
+          const GREEN_BG = "#e6f7ec";
+          const YELLOW_BG = "#fff7e0";
+          const RANGE_BG = "#91c5c5"; // todo el rango mismo color
+          const dayBg = c.inRange
+            ? RANGE_BG
+            : c.priceFrom != null
+              ? (c.priceFrom < 1990 ? GREEN_BG : YELLOW_BG)
+              : "#ffffff";
+          const dayTextClass = c.inRange ? "text-white" : "text-black";
 
-          // fondo por defecto del día (si no está en rango):
-          let dayBg: string | undefined;
-          if (!c.inRange) {
-            if (c.priceFrom != null) {
-              dayBg = c.priceFrom < 1990 ? GREEN_BG : YELLOW_BG;
-            } else {
-              dayBg = "#ffffff";
-            }
-          } else {
-            // en rango: override por color de rango
-            dayBg = c.isStart ? RANGE_START_BG : RANGE_BG;
-          }
-
-          const dayTextClass =
-            c.isStart ? "text-white" : "text-black";
-
-          // caja del día (relleno, sin borde marcado)
           const boxBase =
             "rounded-lg p-2 text-center transition min-h-[48px] flex items-center justify-center";
-
-          const interactivity = canPick && !c.isStart
+          const interactivity = canPick
             ? "cursor-pointer hover:brightness-95"
-            : canPick
-              ? "cursor-pointer"
-              : "opacity-40";
+            : "opacity-40";
 
           return (
             <div key={idx} className="flex flex-col items-stretch">
@@ -153,7 +135,6 @@ function MonthGrid({
               >
                 <div className="text-sm font-medium">{dayjs(c.date).date()}</div>
               </div>
-              {/* Precio debajo, centrado y con altura fija para alinear filas */}
               <div className="h-4 mt-1 text-[11px] text-center leading-4">
                 {priceVisible ? `${Math.round(c.priceFrom!)}€` : ""}
               </div>
@@ -174,7 +155,6 @@ export default function Calendar({
   pax: number;
   onConfirm: (range: { dep: string; ret: string }) => void;
 }) {
-  // mes izquierdo = siguiente al actual
   const [cursor, setCursor] = useState(dayjs().add(1, "month").startOf("month"));
   const leftYear = cursor.year();
   const leftMonth = cursor.month();
@@ -188,7 +168,6 @@ export default function Calendar({
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
   const tripLen = 10;
 
-  // Carga mes izquierdo
   useEffect(() => {
     setPayloadLeft(null);
     fetch(`/api/calendar-prices?origin=${origin}&pax=${pax}&year=${leftYear}&month=${leftMonth}`, { cache: "no-store" })
@@ -197,7 +176,6 @@ export default function Calendar({
       .catch(() => setPayloadLeft(null));
   }, [origin, pax, leftYear, leftMonth]);
 
-  // Carga mes derecho
   useEffect(() => {
     setPayloadRight(null);
     fetch(`/api/calendar-prices?origin=${origin}&pax=${pax}&year=${rightYear}&month=${rightMonth}`, { cache: "no-store" })
@@ -209,7 +187,6 @@ export default function Calendar({
   const dep = selectedStart || "";
   const ret = dep ? addDaysISO(dep, tripLen - 1) : "";
 
-  // navegación
   const prev = () => setCursor((c) => c.subtract(1, "month"));
   const next = () => setCursor((c) => c.add(1, "month"));
 
@@ -217,7 +194,6 @@ export default function Calendar({
 
   return (
     <div>
-      {/* Controles: flechas solo */}
       <div className="flex items-center justify-between mb-4">
         <button className="btn btn-secondary" onClick={prev} aria-label="Mes anterior">
           ‹
@@ -228,8 +204,8 @@ export default function Calendar({
         </button>
       </div>
 
-      {/* En móvil SOLO 1 mes (izquierdo). En escritorio, 2 meses. */}
-      <div className="flex flex-col md:flex-row gap-8">
+      {/* Móvil: 1 mes. Desktop: 2 meses, con gap y ambos usando todo su ancho */}
+      <div className="flex flex-col md:flex-row md:gap-8">
         <MonthGrid
           title={cursor.format("MMMM YYYY")}
           baseYear={leftYear}
@@ -239,7 +215,7 @@ export default function Calendar({
           tripLen={tripLen}
           onPickStart={setSelectedStart}
         />
-        <div className="hidden md:block md:w-1/2">
+        <div className="hidden md:flex md:flex-1">
           <MonthGrid
             title={right.format("MMMM YYYY")}
             baseYear={rightYear}
@@ -252,7 +228,6 @@ export default function Calendar({
         </div>
       </div>
 
-      {/* Barra inferior */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
         <div className="text-sm">
           {selectedStart ? (
@@ -265,7 +240,7 @@ export default function Calendar({
           )}
         </div>
         <div className="flex gap-2 md:justify-end">
-          <button className="btn btn-secondary">Atrás</button>
+          {/* Sin botón Atrás aquí para no duplicarlo con el de Widget */}
           <button className="btn btn-primary" disabled={!canConfirm} onClick={() => onConfirm({ dep, ret })}>
             Siguiente
           </button>
