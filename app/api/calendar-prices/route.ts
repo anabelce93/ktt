@@ -23,25 +23,37 @@ export async function GET(req: Request) {
   }
 
   const grid = buildCalendarGrid(year, month);
-  const days: CalendarDay[] = [];
+  const inMonthCells = grid.filter(c => c.inMonth);
+  const days: CalendarDay[] = new Array(inMonthCells.length);
   let firstDiag: any = undefined;
 
-  for (const cell of grid.filter(c => c.inMonth)) {
-    const dep = cell.dateISO;
-    const ret = addDaysISO(dep, TRIP_LEN - 1);
+  await Promise.all(
+    inMonthCells.map(async (cell, index) => {
+      const dep = cell.dateISO;
+      const ret = addDaysISO(dep, TRIP_LEN - 1);
 
-    // pedimos solo 1 (más barato)
-    const { options, diag } = await searchRoundTripBoth({ origin, dep, ret, pax, limit: 1 } as RoundTripSearch);
-    if (!firstDiag && diag) firstDiag = diag; // guarda el primer diag para mostrarlo
+      try {
+        // pedimos solo 1 (más barato)
+        const { options, diag } = await searchRoundTripBoth({ origin, dep, ret, pax, limit: 1 } as RoundTripSearch);
+        if (!firstDiag && diag) firstDiag = diag; // guarda el primer diag para mostrarlo
 
-    const cheapest = options[0]?.total_amount_per_person ?? null;
-    days.push({
-      date: dep,
-      show: cheapest !== null,
-      priceFrom: cheapest,
-      baseFare: BASE_FARE,
-    });
-  }
+        const cheapest = options[0]?.total_amount_per_person ?? null;
+        days[index] = {
+          date: dep,
+          show: cheapest !== null,
+          priceFrom: cheapest,
+          baseFare: BASE_FARE,
+        };
+      } catch (error) {
+        days[index] = {
+          date: dep,
+          show: false,
+          priceFrom: null,
+          baseFare: BASE_FARE,
+        };
+      }
+    })
+  );
 
   const payload: CalendarPayload & { diag?: any } = { origin, pax, year, month, days };
   if (debug && firstDiag) payload.diag = firstDiag;
