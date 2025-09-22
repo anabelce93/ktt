@@ -33,26 +33,49 @@ export function airlineName(iata?: string): string {
   return AIRLINES[code] ? `${AIRLINES[code]} (${code})` : code;
 }
 
-/**
- * Logo simple (SVG) con las siglas de la aerolínea dentro de un círculo.
- * No es el logo oficial; es una insignia estilizada para dar identidad visual.
+/** Si existe /airlines/XX.svg lo usamos.
+ *  Si no, dibujamos un circulito con las siglas (fallback).
  */
 export function AirlineLogo({ code, size = 20 }: { code?: string; size?: number }) {
   const c = (code || "").toUpperCase() || "??";
+  const svgPath = `/airlines/${c}.svg`;
+  const [exists, setExists] = React.useState<boolean | null>(null);
 
-  // Colores por aerolínea para variar (aprox, no oficiales)
+  React.useEffect(() => {
+    let mounted = true;
+    // comprobación rápida si existe (HEAD)
+    fetch(svgPath, { method: "HEAD" })
+      .then((r) => mounted && setExists(r.ok))
+      .catch(() => mounted && setExists(false));
+    return () => { mounted = false; };
+  }, [svgPath]);
+
+  if (exists) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={svgPath}
+        alt={c}
+        width={size}
+        height={size}
+        style={{ display: "inline-block", borderRadius: 4, objectFit: "contain" }}
+      />
+    );
+  }
+
+  // Fallback insignia
   const palette: Record<string, { bg: string; fg: string }> = {
-    QR: { bg: "#8a1538", fg: "#ffffff" }, // Qatar granate
-    TK: { bg: "#c60c30", fg: "#ffffff" }, // Turkish rojo
-    KE: { bg: "#1ba0d7", fg: "#ffffff" }, // Korean azul
-    OZ: { bg: "#6e2a8c", fg: "#ffffff" }, // Asiana violeta
-    AF: { bg: "#002654", fg: "#ffffff" }, // Air France azul
-    KL: { bg: "#00a1de", fg: "#ffffff" }, // KLM azul
-    LH: { bg: "#ffcc00", fg: "#1a1a1a" }, // Lufthansa amarillo
-    IB: { bg: "#d32f2f", fg: "#ffffff" }, // Iberia rojo
-    UX: { bg: "#2e7d32", fg: "#ffffff" }, // Air Europa verde (no real)
-    BA: { bg: "#1b3a6b", fg: "#ffffff" }, // BA azul
-    ZH: { bg: "#b31e22", fg: "#ffffff" }, // Shenzhen rojo
+    QR: { bg: "#8a1538", fg: "#ffffff" },
+    TK: { bg: "#c60c30", fg: "#ffffff" },
+    KE: { bg: "#1ba0d7", fg: "#ffffff" },
+    OZ: { bg: "#6e2a8c", fg: "#ffffff" },
+    AF: { bg: "#002654", fg: "#ffffff" },
+    KL: { bg: "#00a1de", fg: "#ffffff" },
+    LH: { bg: "#ffcc00", fg: "#1a1a1a" },
+    IB: { bg: "#d32f2f", fg: "#ffffff" },
+    UX: { bg: "#2e7d32", fg: "#ffffff" },
+    BA: { bg: "#1b3a6b", fg: "#ffffff" },
+    ZH: { bg: "#b31e22", fg: "#ffffff" },
   };
   const colors = palette[c] || { bg: "#91c5c5", fg: "#123" };
 
@@ -81,7 +104,6 @@ export function AirlineLogo({ code, size = 20 }: { code?: string; size?: number 
   );
 }
 
-/** Lista que usa el loader para rotar nombres/códigos de aerolíneas */
 export const AIRLINE_LIST_FOR_LOADER = [
   "QR", "TK", "KE", "OZ", "AF", "KL", "LH", "IB", "UX", "BA", "ZH",
 ].map((code) => ({ code, name: AIRLINES[code] || code }));
