@@ -85,7 +85,9 @@ function DayCell({
 
   const textColor = isInTrip ? "#ffffff" : TEXT_DEFAULT;
   const priceStr =
-    entry && entry.show && entry.priceFrom != null ? `${entry.priceFrom}€` : "";
+  entry && entry.show && entry.priceFrom != null
+    ? `${Math.round(entry.priceFrom)}€`
+    : "";
 
   return (
     <div className="flex flex-col items-center">
