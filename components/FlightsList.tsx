@@ -97,7 +97,7 @@ export default function FlightsList({
   departure: string;
   ret: string;
   pax: number;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, opt: any) => void;
   onBack: () => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -239,7 +239,7 @@ export default function FlightsList({
             <div className="text-xs opacity-70">
               {opt.baggage_included ? "Maleta incluida · " : ""}Cabina: {opt.cabin}
             </div>
-            <button className="btn btn-primary" onClick={() => onSelect(opt.id)}>
+            <button className="btn btn-primary" onClick={() => onSelect(opt.id, opt)}
               Seleccionar
             </button>
           </div>
