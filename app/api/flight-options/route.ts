@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
     // Devolvemos hasta 10 opciones ordenadas y con +Δ€ (sin precio total)
     const options = all
       .sort((a, b) => a.total_amount_per_person - b.total_amount_per_person)
-      .slice(0, 10)
+      .slice(0, 20)
       .map((o) => ({
         id: o.id,
         delta_vs_base_eur: Math.round(o.total_amount_per_person - cheapest),
