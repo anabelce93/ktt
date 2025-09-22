@@ -7,12 +7,12 @@ type SegmentInfo = {
   marketing_carrier: string;
   origin: string;
   destination: string;
-  departure: string;        // ISO
-  arrival: string;          // ISO
-  duration_minutes: number; // duración del segmento
-  stops?: number;                 // 0 o 1
-  connection_airport?: string;    // IATA
-  connection_minutes?: number;    // minutos de conexión
+  departure: string;
+  arrival: string;
+  duration_minutes: number;
+  stops?: number;
+  connection_airport?: string;
+  connection_minutes?: number;
 };
 
 type Option = {
@@ -33,20 +33,15 @@ function extractOptions(j: any): Option[] {
   return [];
 }
 
-/** Loader con:
- *  - Una aerolínea visible a la vez (rota)
- *  - Barra que progresa 0→100% una sola vez. Llega a ~90% y espera a datos para completar.
+/** Loader cíclico:
+ *  - Muestra una aerolínea a la vez, rotando.
+ *  - Barra que sube 0→100 y reinicia mientras no llegan datos.
  */
-function FancyLoaderOneByOne({
-  done,
-}: {
-  done: boolean;
-}) {
+function FancyLoaderLoop() {
   const [idx, setIdx] = useState(0);
   const [progress, setProgress] = useState(0);
   const rafRef = useRef<number | null>(null);
 
-  // Rota aerolíneas una a una
   useEffect(() => {
     const t = setInterval(() => {
       setIdx((i) => (i + 1) % AIRLINE_LIST_FOR_LOADER.length);
@@ -54,25 +49,19 @@ function FancyLoaderOneByOne({
     return () => clearInterval(t);
   }, []);
 
-  // Progreso suave 0→~90, y al terminar datos, 100
   useEffect(() => {
-    let mounted = true;
-    const targetWhileLoading = 90; // % máximo antes de datos
     const tick = () => {
       setProgress((p) => {
-        const target = done ? 100 : targetWhileLoading;
-        const speed = done ? 6 : 1.2; // acelera al cierre
-        const next = p + speed;
-        return Math.min(next, target);
+        const next = p + 2;
+        return next >= 100 ? 0 : next;
       });
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => {
-      mounted = false;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [done]);
+  }, []);
 
   const current = AIRLINE_LIST_FOR_LOADER[idx];
 
@@ -82,10 +71,7 @@ function FancyLoaderOneByOne({
       <div className="w-full h-2 bg-gray-100 rounded overflow-hidden mb-3">
         <div
           className="h-2 transition-all"
-          style={{
-            width: `${progress}%`,
-            backgroundColor: "#bdcbcd",
-          }}
+          style={{ width: `${progress}%`, backgroundColor: "#bdcbcd" }}
           aria-hidden
         />
       </div>
@@ -141,12 +127,10 @@ export default function FlightsList({
         if (j?.diag) setDiag(j.diag as DiagItem[]);
         const arr = extractOptions(j);
         setOptions(arr);
-        // eslint-disable-next-line no-console
         console.log("flight-options payload (count)", arr.length, j);
       })
       .catch((e) => {
         setError(String(e));
-        // eslint-disable-next-line no-console
         console.error("flight-options error", e);
       })
       .finally(() => setLoading(false));
@@ -190,35 +174,13 @@ export default function FlightsList({
       <div>
         <div className="text-xs font-semibold mb-1">{label}</div>
         <div className="flex flex-col md:flex-row md:items-start md:gap-4">
-          {/* Tramo 1 */}
           <LegBlock s={s0} />
-          {/* Conexión (solo si hay 2 segmentos) */}
           {s1 ? <ConnectionChip airport={s0?.destination} minutes={conn ?? undefined} /> : null}
-          {/* Tramo 2 */}
           {s1 ? <LegBlock s={s1} /> : null}
         </div>
       </div>
     );
   };
-
-  // Botón color #91c5c5 custom
-  const SelectButton: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = (props) => (
-    <button
-      {...props}
-      className={`px-3 py-2 rounded-xl text-sm font-semibold transition
-        focus:outline-none focus:ring-2 focus:ring-offset-2`}
-      style={{
-        backgroundColor: "#91c5c5",
-        color: "#0b2b2b",
-      }}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#7bb2b2";
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#91c5c5";
-      }}
-    />
-  );
 
   return (
     <div>
@@ -226,11 +188,10 @@ export default function FlightsList({
         <div className="text-sm opacity-70">
           Origen <strong>{origin}</strong> · {departure} → {ret} · {pax} pax
         </div>
-        <button className="btn btn-secondary" onClick={onBack}>Cambiar fecha</button>
+        <button className="btn btn-secondary" onClick={onBack}>Atrás</button>
       </div>
 
-      {/* Loader una sola pasada */}
-      {loading && <FancyLoaderOneByOne done={!loading} />}
+      {loading && <FancyLoaderLoop />}
 
       {error && <div className="text-sm text-red-600 mt-3">Error al cargar opciones: {error}</div>}
 
@@ -263,7 +224,6 @@ export default function FlightsList({
 
       {!loading && !error && options.map((opt) => (
         <div key={opt.id} className="border rounded-2xl p-4 mb-4">
-          {/* Cabecera */}
           <div className="flex items-start justify-between mb-3">
             <div className="text-xs uppercase tracking-wide opacity-70">{opt.cabin}</div>
             <div className="text-base font-semibold">
@@ -271,20 +231,17 @@ export default function FlightsList({
             </div>
           </div>
 
-          {/* IDA (fila) */}
           <TripRow label="IDA" segs={opt.out} />
           <div className="my-3 h-px bg-gray-200" />
-          {/* VUELTA (fila) */}
           <TripRow label="VUELTA" segs={opt.ret} />
 
-          {/* Pie */}
           <div className="mt-3 flex items-center justify-between">
             <div className="text-xs opacity-70">
               {opt.baggage_included ? "Maleta incluida · " : ""}Cabina: {opt.cabin}
             </div>
-            <SelectButton onClick={() => onSelect(opt.id)}>
+            <button className="btn btn-primary" onClick={() => onSelect(opt.id)}>
               Seleccionar
-            </SelectButton>
+            </button>
           </div>
         </div>
       ))}
