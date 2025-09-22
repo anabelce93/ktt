@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { airlineName, AirlineLogo, AIRLINE_LIST_FOR_LOADER } from "@/lib/airlines";
 import { formatDuration, hhmm } from "@/lib/format";
 
@@ -7,17 +7,17 @@ type SegmentInfo = {
   marketing_carrier: string;
   origin: string;
   destination: string;
-  departure: string;
-  arrival: string;
-  duration_minutes: number;
-  stops?: number;
-  connection_airport?: string;
-  connection_minutes?: number;
+  departure: string;        // ISO
+  arrival: string;          // ISO
+  duration_minutes: number; // minutos de vuelo para ese segmento
+  stops?: number;                 // 0 o 1
+  connection_airport?: string;    // IATA
+  connection_minutes?: number;    // minutos de conexión
 };
 
-type Option = {
+export type FlightOption = {
   id: string;
-  delta_vs_base_eur: number;
+  delta_vs_base_eur: number; // +Δ € por persona vs opción base
   out: SegmentInfo[];
   ret: SegmentInfo[];
   baggage_included: boolean;
@@ -26,16 +26,16 @@ type Option = {
 
 type DiagItem = { dest: string; count?: number; error?: string };
 
-function extractOptions(j: any): Option[] {
-  if (j && Array.isArray(j.options)) return j.options as Option[];
-  if (j && j.data && Array.isArray(j.data.options)) return j.data.options as Option[];
-  if (Array.isArray(j)) return j as Option[];
+function extractOptions(j: any): FlightOption[] {
+  if (j && Array.isArray(j.options)) return j.options as FlightOption[];
+  if (j && j.data && Array.isArray(j.data.options)) return j.data.options as FlightOption[];
+  if (Array.isArray(j)) return j as FlightOption[];
   return [];
 }
 
 /** Loader cíclico:
- *  - Muestra una aerolínea a la vez, rotando.
- *  - Barra que sube 0→100 y reinicia mientras no llegan datos.
+ *  - Muestra una aerolínea a la vez (rota).
+ *  - Barra 0→100 y reinicia mientras carga.
  */
 function FancyLoaderLoop() {
   const [idx, setIdx] = useState(0);
@@ -97,11 +97,11 @@ export default function FlightsList({
   departure: string;
   ret: string;
   pax: number;
-  onSelect: (id: string, opt: any) => void;
+  onSelect: (id: string, opt: FlightOption) => void; // ← firma con 2 args
   onBack: () => void;
 }) {
   const [loading, setLoading] = useState(true);
-  const [options, setOptions] = useState<Option[]>([]);
+  const [options, setOptions] = useState<FlightOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [diag, setDiag] = useState<DiagItem[] | null>(null);
 
@@ -239,7 +239,10 @@ export default function FlightsList({
             <div className="text-xs opacity-70">
               {opt.baggage_included ? "Maleta incluida · " : ""}Cabina: {opt.cabin}
             </div>
-            <button className="btn btn-primary" onClick={() => onSelect(opt.id, opt)}
+            <button
+              className="btn btn-primary"
+              onClick={() => onSelect(opt.id, opt)} // ← pasamos id y objeto
+            >
               Seleccionar
             </button>
           </div>
