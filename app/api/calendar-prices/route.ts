@@ -106,12 +106,12 @@ export async function GET(req: NextRequest) {
         for (const dest of DESTS) {
           try {
             const offers = await searchOffers({
-              origin,
-              destination: dest,
-              departure: dep,
-              ret,
-              pax,
-            });
+  origin,
+  destination: dest,
+  dep,   // ✅ usa 'dep'
+  ret,
+  pax,
+});
             if (offers.length > 0) {
               const pp = offers[0].total_amount_per_person;
               if (best == null || pp < best) best = pp;
