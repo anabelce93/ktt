@@ -1,14 +1,15 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { airlineName } from "@/lib/airlines";
-import { formatDuration, hhmm, minutesBetween } from "@/lib/format";
 
 type SegmentInfo = {
   origin: string;
-  departure: string; // ISO
   destination: string;
+  departure: string; // ISO
   arrival: string;   // ISO
-  marketing_carrier: string; // IATA
+  duration_minutes?: number;
+  marketing_carrier?: string; // IATA
 };
 
 export type FlightOption = {
@@ -16,274 +17,325 @@ export type FlightOption = {
   out: SegmentInfo[];
   ret: SegmentInfo[];
   baggage_included: boolean;
-  cabin: "Economy";
+  cabin: string; // "Economy"
+  // diferencia sobre la más barata en el calendario (por persona)
   total_amount_per_person: number;
-  airline_codes: string[]; // para logos
+  airline_codes?: string[]; // para logos
 };
+
+type Props = {
+  origin: string;
+  departure: string;
+  ret: string;
+  pax: number;
+  onBack: () => void;
+  onConfirm: (id: string, opt: FlightOption) => void; // Continuar
+};
+
+function hhmm(iso?: string) {
+  if (!iso) return "--:--";
+  return iso.slice(11, 16);
+}
+function fmtDur(min?: number) {
+  if (!min && min !== 0) return "--";
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${h} h ${m} min`;
+}
+function diffMinutes(a: string, b: string) {
+  return Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000));
+}
 
 export default function FlightsList({
   origin,
   departure,
   ret,
   pax,
-  onConfirm,
   onBack,
-}: {
-  origin: string;
-  departure: string;
-  ret: string;
-  pax: number;
-  onConfirm: (id: string, opt: FlightOption) => void;
-  onBack: () => void;
-}) {
+  onConfirm,
+}: Props) {
   const [loading, setLoading] = useState(true);
   const [options, setOptions] = useState<FlightOption[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // loader ciclando logos
+  const LOGOS: string[] = useMemo(
+    () => ["QR", "KE", "OZ", "EK", "EY", "TK", "AF", "KL", "LX", "ZH", "TW", "7C", "LJ"],
+    []
+  );
+  const [logoIdx, setLogoIdx] = useState(0);
   useEffect(() => {
-    let cancelled = false;
+    const t = setInterval(() => setLogoIdx((i) => (i + 1) % LOGOS.length), 450);
+    return () => clearInterval(t);
+  }, [LOGOS.length]);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setError(null);
+    setOptions([]);
+    setSelectedId(null);
+
     (async () => {
-      setLoading(true);
       try {
-        const url = `/api/flight-options?origin=${encodeURIComponent(
-          origin
-        )}&departure=${departure}&return=${ret}&pax=${pax}&limit=20`;
-        const r = await fetch(url, { cache: "no-store" });
-        const j = await r.json();
-        if (!cancelled) {
-          const arr = (j.options || []) as FlightOption[];
-          setOptions(arr);
-          if (arr.length > 0) setSelectedId(arr[0].id); // marcar la más barata
+        const qs = new URLSearchParams({
+          origin,
+          departure,
+          ret,
+          pax: String(pax),
+          limit: "20",
+        });
+        const res = await fetch(`/api/flight-options?${qs.toString()}`, {
+          cache: "no-store",
+        });
+        const data = await res.json();
+        if (!alive) return;
+
+        if (!res.ok) {
+          setError(data?.err || `Error ${res.status}`);
+          setLoading(false);
+          return;
         }
-      } catch {
-        if (!cancelled) setOptions([]);
-      } finally {
-        if (!cancelled) setLoading(false);
+
+        const opts: FlightOption[] = (data?.options || []).slice(0, 20);
+        setOptions(opts);
+        if (opts[0]) setSelectedId(opts[0].id); // preseleccionamos la +barata (borde destacado)
+        setLoading(false);
+      } catch (e: any) {
+        if (!alive) return;
+        console.error("flights fetch error", e);
+        setError(e?.message || "Error");
+        setLoading(false);
       }
     })();
+
     return () => {
-      cancelled = true;
+      alive = false;
     };
   }, [origin, departure, ret, pax]);
 
-  const selectedOpt = useMemo(
-    () => options.find((o) => o.id === selectedId) || null,
-    [options, selectedId]
-  );
-
-  return (
-    <div className="relative">
-      <div className="flex justify-between mb-3">
-        <div className="text-sm opacity-70">
-          Origen <strong>{origin}</strong> · {departure} → {ret} · {pax} pax
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="min-h-[260px] flex flex-col items-center justify-center gap-4">
-          {/* Loader bar animada continua */}
-          <div className="w-full max-w-[480px] h-2 bg-gray-200 rounded overflow-hidden">
-            <div className="h-2 bg-gray-400 animate-pulse" style={{ width: "100%" }} />
-          </div>
-
-          {/* Logos girando: solo imagen, centrado y grande */}
-          <RotatingLogos />
-          <div className="text-sm opacity-70">Buscando las mejores opciones…</div>
-        </div>
-      ) : options.length === 0 ? (
-        <div className="p-6 text-center text-sm">No hay vuelos disponibles con los filtros.</div>
-      ) : (
-        <div className="space-y-4 pb-24">
-          {options.map((opt, idx) => {
-            const selected = selectedId === opt.id;
-            const delta =
-              idx === 0
-                ? 0
-                : Math.round(
-                    opt.total_amount_per_person -
-                      options[0].total_amount_per_person
-                  );
-
-            return (
-              <div
-                key={opt.id}
-                className={`p-3 rounded-lg border ${selected ? "border-black" : "border-gray-200"} bg-white`}
-              >
-                {/* Top: logos + info básica */}
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <AirlineLogoRow codes={opt.airline_codes} />
-                    <div className="text-xs opacity-60">
-                      Maleta incluida · {opt.cabin === "Economy" ? "Economy" : opt.cabin}
-                    </div>
-                  </div>
-                  <div className="text-sm font-semibold">
-                    {delta === 0 ? "+0 €" : `+${delta} €`}
-                  </div>
-                </div>
-
-                {/* Grid horizontal: IDA | ESCALA | VUELTA */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-                  <LegBlock title="IDA" segs={opt.out} />
-                  <ScalePill segs={opt.out} />
-                  <LegBlock title="VUELTA" segs={opt.ret} />
-                </div>
-
-                {/* Botón seleccionar */}
-                <div className="mt-3 flex justify-end">
-                  <button
-                    className={`px-3 py-2 rounded ${selected ? "bg-black text-white" : "bg-[#91c5c5] text-white"}`}
-                    onClick={() => setSelectedId(opt.id)}
-                  >
-                    {selected ? "Seleccionado" : "Seleccionar"}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Barra inferior fija con Atrás / Continuar */}
-      <div className="fixed left-0 right-0 bottom-0 bg-white border-t border-gray-200 px-4 py-3 flex items-center justify-between z-40">
+  // barra fija abajo
+  const BottomBar = (
+    <div className="fixed left-0 right-0 bottom-0 bg-white border-t p-3 z-40">
+      <div className="max-w-5xl mx-auto flex justify-between gap-3">
         <button className="btn btn-secondary" onClick={onBack}>
           Atrás
         </button>
         <button
           className="btn btn-primary"
-          disabled={!selectedOpt}
-          onClick={() => selectedOpt && onConfirm(selectedOpt.id, selectedOpt)}
+          disabled={!selectedId}
+          onClick={() => {
+            const opt = options.find((o) => o.id === selectedId);
+            if (opt) onConfirm(opt.id, opt);
+          }}
         >
           Continuar
         </button>
       </div>
     </div>
   );
-}
 
-/* ---- Subcomponentes de FlightsList ---- */
-
-function AirlineLogoRow({ codes }: { codes: string[] }) {
-  const top = codes.slice(0, 3);
-  return (
-    <div className="flex items-center gap-3">
-      {top.map((code) => (
-        <img
-          key={code}
-          src={`/airlines/${code}.svg`}
-          alt={airlineName(code) || code}
-          style={{ height: 36, width: "auto", maxWidth: 160 }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function LegBlock({ title, segs }: { title: string; segs: SegmentInfo[] }) {
-  if (!segs || segs.length === 0) return null;
-  const first = segs[0];
-  const last = segs[segs.length - 1];
-
-  return (
-    <div>
-      <div className="text-xs font-semibold mb-1">{title}</div>
-
-      {/* Primer tramo o tramo único */}
-      <div className="text-sm">
-        {first.origin} {hhmm(first.departure)} →{" "}
-        {segs.length > 1 ? segs[0].destination : last.destination}{" "}
-        {hhmm(segs.length > 1 ? segs[0].arrival : last.arrival)}
-      </div>
-      <div className="text-xs opacity-70 mb-1">
-        Duración:{" "}
-        {formatDuration(
-          first.departure,
-          segs.length > 1 ? segs[0].arrival : last.arrival
-        )}{" "}
-        · {airlineName(first.marketing_carrier) || first.marketing_carrier}
-      </div>
-
-      {/* Tramos siguientes si existen */}
-      {segs.length > 1 &&
-        segs.slice(1).map((s, i) => (
-          <div key={i} className="mt-1">
-            <div className="text-xs opacity-70">
-              Conexión en {s.origin} · Espera: {formatDuration(segs[i].arrival, s.departure)}
-            </div>
-            <div className="text-sm">
-              {s.origin} {hhmm(s.departure)} → {s.destination} {hhmm(s.arrival)}
-            </div>
-            <div className="text-xs opacity-70">
-              Duración: {formatDuration(s.departure, s.arrival)} ·{" "}
-              {airlineName(s.marketing_carrier) || s.marketing_carrier}
-            </div>
-          </div>
-        ))}
-    </div>
-  );
-}
-
-function ScalePill({ segs }: { segs: SegmentInfo[] }) {
-  if (!segs || segs.length < 2) {
+  if (loading) {
+    const code = LOGOS[logoIdx];
     return (
-      <div className="flex items-center justify-center">
-        <span className="px-3 py-2 rounded-full bg-gray-100 text-sm">Directo</span>
+      <div className="relative min-h-[40vh] flex flex-col items-center justify-center">
+        {/* barra indeterminada */}
+        <div className="w-64 h-2 bg-gray-200 rounded overflow-hidden mb-4">
+          <div className="h-2 w-1/3 bg-gray-500 animate-pulse" />
+        </div>
+
+        {/* logo grande centrado */}
+        <div className="flex items-center gap-3">
+          <img
+            src={`/airlines/${code}.svg`}
+            alt={airlineName(code)}
+            style={{ height: 40, width: "auto", maxWidth: 200 }}
+          />
+        </div>
+
+        {BottomBar}
       </div>
     );
   }
 
-  const stops = segs.slice(0, -1).map((s) => s.destination);
-  const stopCount = stops.length;
-
-  // Suma del tiempo total de espera entre tramos
-  let totalLayoverMin = 0;
-  for (let i = 0; i < segs.length - 1; i++) {
-    totalLayoverMin += minutesBetween(segs[i].arrival, segs[i + 1].departure);
+  if (error) {
+    return (
+      <div className="relative">
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm">
+          Ha ocurrido un error cargando los vuelos: {String(error)}
+        </div>
+        {BottomBar}
+      </div>
+    );
   }
-  const layoverStr = minsToPretty(totalLayoverMin);
 
-  const label =
-    stopCount === 1
-      ? `1 escala en ${stops[0]} – ${layoverStr}`
-      : `${stopCount} escalas en ${stops.join(" · ")} – ${layoverStr}`;
+  if (!options.length) {
+    return (
+      <div className="relative">
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm">
+          No hay combinaciones disponibles para esas fechas.
+        </div>
+        {BottomBar}
+      </div>
+    );
+  }
 
-  return (
-    <div className="flex items-center justify-center">
-      <span
-        className="px-3 py-2 rounded-full text-sm"
-        style={{ background: "#F0F4F4", color: "#111" }}
+  // tarjeta de una opción
+  function Card({ opt, idx }: { opt: FlightOption; idx: number }) {
+    const diff = Math.round(opt.total_amount_per_person); // ya viene por persona
+    const selected = opt.id === selectedId;
+
+    // construir “píldoras” de escalas y duraciones
+    function renderSlice(segs: SegmentInfo[]) {
+      if (!segs.length) return null;
+      const first = segs[0];
+      const last = segs[segs.length - 1];
+
+      const blocks: React.ReactNode[] = [];
+
+      // primer tramo
+      const d1 = segs[0];
+      blocks.push(
+        <div key="leg0" className="min-w-[180px]">
+          <div className="font-medium">
+            {d1.origin} {hhmm(d1.departure)} → {d1.destination} {hhmm(d1.arrival)}
+          </div>
+          <div className="text-xs opacity-70 mt-0.5">
+            Duración: {fmtDur(d1.duration_minutes)}
+          </div>
+          <div className="flex items-center gap-1 mt-1 text-xs">
+            {d1.marketing_carrier ? (
+              <>
+                <img
+                  src={`/airlines/${d1.marketing_carrier}.svg`}
+                  alt={airlineName(d1.marketing_carrier)}
+                  style={{ height: 18, width: "auto", maxWidth: 120 }}
+                />
+                <span className="opacity-80">{airlineName(d1.marketing_carrier)}</span>
+              </>
+            ) : null}
+          </div>
+        </div>
+      );
+
+      // si hay escala(s)
+      for (let i = 1; i < segs.length; i++) {
+        const prev = segs[i - 1];
+        const curr = segs[i];
+        const lay = diffMinutes(prev.arrival, curr.departure);
+
+        // píldora escala
+        blocks.push(
+          <div
+            key={`lay${i}`}
+            className="px-3 py-1 rounded-full bg-[#91c5c5]/20 text-xs font-medium self-center"
+          >
+            {`1 escala en ${prev.destination} - ${fmtDur(lay)}`}
+          </div>
+        );
+
+        // siguiente tramo
+        blocks.push(
+          <div key={`leg${i}`} className="min-w-[180px]">
+            <div className="font-medium">
+              {curr.origin} {hhmm(curr.departure)} → {curr.destination} {hhmm(curr.arrival)}
+            </div>
+            <div className="text-xs opacity-70 mt-0.5">
+              Duración: {fmtDur(curr.duration_minutes)}
+            </div>
+            <div className="flex items-center gap-1 mt-1 text-xs">
+              {curr.marketing_carrier ? (
+                <>
+                  <img
+                    src={`/airlines/${curr.marketing_carrier}.svg`}
+                    alt={airlineName(curr.marketing_carrier)}
+                    style={{ height: 18, width: "auto", maxWidth: 120 }}
+                  />
+                  <span className="opacity-80">
+                    {airlineName(curr.marketing_carrier)}
+                  </span>
+                </>
+              ) : null}
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="flex flex-wrap items-start gap-3">
+          {blocks}
+        </div>
+      );
+    }
+
+    return (
+      <label
+        className={`block rounded-2xl border p-4 bg-white transition-shadow cursor-pointer ${
+          selected ? "border-black shadow-md" : "border-gray-200"
+        }`}
       >
-        {label}
-      </span>
-    </div>
-  );
-}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <div className="text-xs mb-2">
+              {opt.baggage_included ? "Maleta incluida" : "Sin maleta"} · {opt.cabin}
+            </div>
 
-function RotatingLogos() {
-  // Asegúrate de tener estos SVGs en /public/airlines/
-  const codes = ["KE", "OZ", "QR", "EK", "TK", "AY", "JL", "NH", "ET", "SU"];
-  const [idx, setIdx] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setIdx((i) => (i + 1) % codes.length), 700);
-    return () => clearInterval(t);
-  }, []);
-  const code = codes[idx];
+            {/* IDA */}
+            <div className="text-sm font-semibold mb-1">IDA</div>
+            {renderSlice(opt.out)}
+
+            {/* VUELTA */}
+            <div className="text-sm font-semibold mt-4 mb-1">VUELTA</div>
+            {renderSlice(opt.ret)}
+          </div>
+
+          {/* +Δ€ */}
+          <div className="text-right whitespace-nowrap">
+            <div className="text-lg font-bold">
+              {diff === 0 ? "+0€" : `+${diff}€`}
+            </div>
+            <div className="mt-2">
+              <input
+                type="radio"
+                name="opt"
+                checked={selected}
+                onChange={() => setSelectedId(opt.id)}
+              />
+            </div>
+          </div>
+        </div>
+      </label>
+    );
+  }
+
   return (
-    <div className="h-10 flex items-center justify-center">
-      <img
-        src={`/airlines/${code}.svg`}
-        alt={code}
-        style={{ height: 40, width: "auto", maxWidth: 180 }}
-      />
+    <div className="pb-20">
+      <div className="grid gap-3">
+        {options.map((o, i) => (
+          <Card key={o.id} opt={o} idx={i} />
+        ))}
+      </div>
+      {/* barra fija */}
+      <div className="h-16" />
+      {/* render real */}
+      <div className="fixed left-0 right-0 bottom-0 bg-white border-t p-3 z-40">
+        <div className="max-w-5xl mx-auto flex justify-between gap-3">
+          <button className="btn btn-secondary" onClick={onBack}>
+            Atrás
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={!selectedId}
+            onClick={() => {
+              const opt = options.find((o) => o.id === selectedId);
+              if (opt) onConfirm(opt.id, opt);
+            }}
+          >
+            Continuar
+          </button>
+        </div>
+      </div>
     </div>
   );
-}
-
-/* Utils locales */
-function minsToPretty(mins: number) {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h <= 0) return `${m} min`;
-  if (m === 0) return `${h} h`;
-  return `${h} h ${m} min`;
 }
