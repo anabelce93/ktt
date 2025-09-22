@@ -155,6 +155,9 @@ export default function Calendar({
   pax: number;
   onConfirm: (range: { dep: string; ret: string }) => void;
 }) {
+  // cuando el usuario termina de elegir rango (10 días):
+  onConfirm({ dep: startIso, ret: endIso });
+}
   const [cursor, setCursor] = useState(dayjs().add(1, "month").startOf("month"));
   const leftYear = cursor.year();
   const leftMonth = cursor.month();
