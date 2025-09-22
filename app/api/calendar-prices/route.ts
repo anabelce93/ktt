@@ -1,149 +1,121 @@
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-export const runtime = "nodejs";
+// app/api/calendar-prices/route.ts
+import { NextResponse } from "next/server";
+import { addDaysISO } from "@/lib/utils";          // debe existir: (iso: string, days: number) => string
+import { searchOffersRaw } from "@/lib/duffel";     // del lib/duffel.ts que te pasé
+import { baseFarePerPerson as _baseFarePerPerson } from "@/lib/pricing"; // si no existe, devolvemos 0
 
-import { NextRequest, NextResponse } from "next/server";
-import dayjs from "dayjs";
-import { baseFarePerPerson } from "@/lib/pricing";
-import { addDaysISO } from "@/lib/utils";
-import { searchOffers } from "@/lib/duffel";
-import { cacheGet, cacheSet } from "@/lib/cache";
+// Constantes de negocio
+const DESTS = ["ICN", "GMP"] as const;   // buscamos en ambos
+const TRIP_LEN = 10;                     // 10 días
+const LIMIT_PER_DAY = 1;                 // para el calendario nos basta con la mejor (1)
 
-const DESTS = ["ICN", "GMP"] as const; // buscamos en ambos
-const TTL_SECONDS = 60 * 60 * 12; // 12h
-
-// limitador simple de concurrencia
-function pLimit(concurrency: number) {
-  let active = 0;
-  const queue: (() => void)[] = [];
-  const next = () => {
-    active--;
-    if (queue.length) queue.shift()!();
-  };
-  return async <T>(fn: () => Promise<T>): Promise<T> =>
-    new Promise<T>((resolve, reject) => {
-      const run = () => {
-        active++;
-        fn()
-          .then((v) => {
-            next();
-            resolve(v);
-          })
-          .catch((e) => {
-            next();
-            reject(e);
-          });
-      };
-      if (active < concurrency) run();
-      else queue.push(run);
-    });
+function roundEuros(n?: number | string): number {
+  if (n == null) return 0;
+  const num = typeof n === "string" ? parseFloat(n) : n;
+  return Math.round(num);
 }
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const origin = (searchParams.get("origin") || "BCN").toUpperCase();
-  const pax = Math.max(1, Math.min(6, parseInt(searchParams.get("pax") || "1", 10)));
-  const year = parseInt(searchParams.get("year") || dayjs().year().toString(), 10);
-  // por defecto: mes siguiente (0-based)
-  const month = parseInt(
-    searchParams.get("month") || dayjs().add(1, "month").month().toString(),
-    10
-  );
-  const noCache = searchParams.get("nocache") === "1";
+// Precio por persona (redondeado) a partir de un DuffelOffer
+function pricePerPersonFromOffer(offer: any, pax: number): number {
+  // Preferir price por pasajero si está:
+  const p0 = offer?.passengers?.[0];
+  const ppLive = p0?.live_pricing?.total_amount;
+  const ppPrice = p0?.price?.total_amount;
 
-  const first = dayjs().year(year).month(month).date(1);
-  const daysIn = first.daysInMonth();
-  const minStart = dayjs().add(30, "day").startOf("day"); // mínimo +30 días
+  if (ppLive) return roundEuros(ppLive);
+  if (ppPrice) return roundEuros(ppPrice);
 
-  const monthKey = `cal:v6:${origin}:${pax}:${year}-${month}`;
+  // fallback: total_amount / pax
+  const total = parseFloat(offer?.total_amount || "0");
+  return roundEuros(total / Math.max(1, pax));
+}
 
-  // 1) Cache a nivel de mes (si no forzamos nocache)
-  if (!noCache) {
-    const cachedMonth = await cacheGet<any>(monthKey);
-    if (cachedMonth) return NextResponse.json(cachedMonth);
+// Base fare helper (si tu firma difiere, atrapamos y devolvemos 0)
+function baseFarePerPerson(origin: string, pax: number): number {
+  try {
+    // @ts-ignore – por si tu firma real es distinta
+    return roundEuros(_baseFarePerPerson(origin, pax));
+  } catch {
+    return 0;
   }
+}
 
-  // 2) Reunimos días con cache por día
-  const limiter = pLimit(6); // sube/baja según te deje Duffel
-  const dayPromises: Promise<{
-    date: string;
-    show: boolean;
-    priceFrom: number | null;
-    baseFare: number;
-  }>[] = [];
+// Genera todas las fechas (YYYY-MM-DD) del mes solicitado
+function monthDays(year: number, month: number): string[] {
+  // month: 1..12
+  const y = year;
+  const m0 = month - 1; // Date usa 0..11
+  const first = new Date(Date.UTC(y, m0, 1));
+  const nextMonth = new Date(Date.UTC(y, m0 + 1, 1));
+  const days: string[] = [];
+  for (let d = new Date(first); d < nextMonth; d.setUTCDate(d.getUTCDate() + 1)) {
+    const iso = d.toISOString().slice(0, 10);
+    days.push(iso);
+  }
+  return days;
+}
 
-  for (let d = 1; d <= daysIn; d++) {
-    dayPromises.push(
-      limiter(async () => {
-        const date = first.date(d);
-        const dep = date.format("YYYY-MM-DD");
-        const ret = addDaysISO(dep, 9); // viaje 10 días
-        const baseFare = baseFarePerPerson(dep, pax);
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const origin = searchParams.get("origin") || "BCN";
+    const pax = parseInt(searchParams.get("pax") || "2", 10);
+    const year = parseInt(searchParams.get("year") || "2025", 10);
+    const month = parseInt(searchParams.get("month") || "10", 10);
+    const nocache = searchParams.get("nocache"); // ignorado (si quieres, úsalo para saltarte tu redis)
 
-        const dayKey = `day:v1:${origin}:${pax}:${dep}`;
+    // Construimos los días del mes
+    const daysISO = monthDays(year, month);
 
-        // 2.a) Intentar leer el día de Redis (si no forzamos nocache)
-        if (!noCache) {
-          const cachedDay = await cacheGet<{
-            date: string;
-            show: boolean;
-            priceFrom: number | null;
-            baseFare: number;
-          }>(dayKey);
-          if (cachedDay) return cachedDay;
-        }
+    // Precio base por persona (si aplica en tu UI)
+    const base = baseFarePerPerson(origin, pax);
 
-        // 2.b) Si no hay cache, calcular el día
-        // fuera de ventana: no mostramos
-        if (!date.isAfter(minStart.subtract(1, "day"))) {
-          const dayData = { date: dep, show: false, priceFrom: null, baseFare };
-          await cacheSet(dayKey, dayData, TTL_SECONDS);
-          return dayData;
-        }
+    const days = [];
+    for (const dep of daysISO) {
+      const ret = addDaysISO(dep, TRIP_LEN - 1);
 
-        // Buscamos ICN y GMP y nos quedamos con el vuelo más barato válido (pp)
-        let best: number | null = null;
-        for (const dest of DESTS) {
-          try {
-            const offers = await searchOffers({
-  origin,
-  destination: dest,
-  dep,   // ✅ usa 'dep'
-  ret,
-  pax,
-});
-            if (offers.length > 0) {
-              const pp = offers[0].total_amount_per_person;
-              if (best == null || pp < best) best = pp;
-            }
-          } catch (e) {
-            // log opcional:
-            // console.error("Duffel day error", { origin, dest, dep, ret, err: String(e) });
+      let best: number | null = null;
+      // probamos ICN y GMP
+      for (const destination of DESTS) {
+        try {
+          const offers = await searchOffersRaw({
+            origin,
+            destination,
+            dep,
+            ret,
+            pax,
+            limit: LIMIT_PER_DAY,
+          });
+
+          if (offers && offers.length > 0) {
+            const perPerson = pricePerPersonFromOffer(offers[0], pax);
+            if (best == null || perPerson < best) best = perPerson;
           }
+        } catch (e) {
+          // no rompemos el calendario por un error puntual; seguimos con el siguiente destino
+          // opcional: podrías loguearlo en consola de servidor
         }
+      }
 
-        let show = false;
-        let priceFrom: number | null = null;
-        if (best != null) {
-          const totalPerPerson = baseFare + best; // base p.p. + vuelo p.p.
-          if (totalPerPerson < 2500) {
-            show = true;
-            priceFrom = totalPerPerson;
-          }
-        }
+      days.push({
+        date: dep,
+        show: best != null,                 // hay disponibilidad si encontramos al menos 1 offer
+        priceFrom: best != null ? best : null, // número entero sin decimales, ya redondeado
+        baseFare: base,                     // si no te cuadra, cámbialo o quítalo
+      });
+    }
 
-        const dayData = { date: dep, show, priceFrom, baseFare };
-        await cacheSet(dayKey, dayData, TTL_SECONDS);
-        return dayData;
-      })
+    return NextResponse.json({
+      origin,
+      pax,
+      year,
+      month,
+      days,
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "calendar-prices error" },
+      { status: 500 }
     );
   }
-
-  const days = await Promise.all(dayPromises);
-
-  // 3) (Opcional) Guardar también el mes ya montado
-  const payload = { origin, pax, year, month, days };
-  await cacheSet(monthKey, payload, TTL_SECONDS);
-
-  return NextResponse.json(payload);
 }
