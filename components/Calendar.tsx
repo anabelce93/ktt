@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
 import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
@@ -18,10 +18,14 @@ function addDaysISO(iso: string, n: number) {
 function MonthSkeleton() {
   return (
     <div className="w-full md:w-1/2">
+      {/* sin marco de mes */}
       <div className="h-6 w-40 mx-auto rounded bg-gray-100 animate-pulse mb-3" />
       <div className="grid grid-cols-7 gap-2">
         {Array.from({ length: 42 }).map((_, i) => (
-          <div key={i} className="h-12 rounded bg-gray-100 animate-pulse" />
+          <div key={i} className="flex flex-col items-stretch">
+            <div className="h-12 rounded bg-gray-100 animate-pulse" />
+            <div className="h-4 mt-1 rounded bg-gray-100 animate-pulse" />
+          </div>
         ))}
       </div>
     </div>
@@ -49,7 +53,7 @@ function MonthGrid({
 
   const first = dayjs().year(baseYear).month(baseMonth).date(1);
   const daysIn = first.daysInMonth();
-  const startWeekday = (first.day() + 6) % 7; // L=0..D=6 (ajuste para empezar en lunes)
+  const startWeekday = (first.day() + 6) % 7; // lunes=0
 
   const selectedEnd = selectedStart ? addDaysISO(selectedStart, tripLen - 1) : null;
   const byDate: Record<string, DayItem> = {};
@@ -70,7 +74,6 @@ function MonthGrid({
       isDisabled: true,
     });
   }
-
   for (let d = 1; d <= daysIn; d++) {
     const iso = first.date(d).format("YYYY-MM-DD");
     const it = byDate[iso] || { date: iso, show: false, priceFrom: null, baseFare: 0 };
@@ -82,56 +85,81 @@ function MonthGrid({
       dayjs(iso).isSameOrBefore(dayjs(selectedEnd));
     const isStart = selectedStart === iso;
 
-    cells.push({
-      ...it,
-      inRange,
-      isStart,
-      isDisabled: false,
-    });
+    cells.push({ ...it, inRange, isStart, isDisabled: false });
   }
 
   return (
     <div className="w-full md:w-1/2">
-      <div className="border rounded-2xl p-3">
-        <div className="text-sm font-semibold text-center mb-2">
-          {title}
-        </div>
+      {/* sin borde marco; título centrado */}
+      <div className="text-sm font-semibold text-center mb-2">{title}</div>
 
-        <div className="grid grid-cols-7 gap-1 text-[11px] font-semibold mb-1 opacity-70">
-          {["L","M","X","J","V","S","D"].map((d) => <div key={d} className="text-center">{d}</div>)}
-        </div>
+      <div className="grid grid-cols-7 gap-1 text-[11px] font-semibold mb-1 opacity-70">
+        {["L","M","X","J","V","S","D"].map((d) => <div key={d} className="text-center">{d}</div>)}
+      </div>
 
-        <div className="grid grid-cols-7 gap-2">
-          {cells.map((c, idx) => {
-            if (c.isDisabled) return <div key={idx} />;
-            const canPick = c.show; // inicio solo en días disponibles
-            const priceVisible = c.priceFrom != null && (!c.inRange || c.isStart);
-
-            const baseCls = "rounded-lg p-2 text-center border transition";
-            const cls =
-              c.isStart
-                ? `${baseCls} border-[#f08e80] bg-[#fdf0ee]`
-                : c.inRange
-                  ? `${baseCls} border-[#91c5c5] bg-[#e8f4f4]`
-                  : `${baseCls} bg-white`;
-
-            const interactivity = canPick ? "cursor-pointer hover:border-[#91c5c5]" : "opacity-40";
-
+      <div className="grid grid-cols-7 gap-2">
+        {cells.map((c, idx) => {
+          if (c.isDisabled) {
             return (
+              <div key={idx} className="flex flex-col items-stretch">
+                <div />
+                <div className="h-4 mt-1" />
+              </div>
+            );
+          }
+
+          const canPick = c.show; // se puede iniciar solo en días disponibles
+          const priceVisible = c.priceFrom != null && (!c.inRange || c.isStart);
+
+          // COLORES
+          const GREEN_BG = "#e6f7ec";   // oferta (<1990) fondo verdecito
+          const YELLOW_BG = "#fff7e0";  // >=1990 fondo amarillo suave
+          const RANGE_START_BG = "#91c5c5"; // inicio seleccionado
+          const RANGE_BG = "#eaf6f6";       // resto del rango (suave del 91c5c5)
+
+          // fondo por defecto del día (si no está en rango):
+          let dayBg: string | undefined;
+          if (!c.inRange) {
+            if (c.priceFrom != null) {
+              dayBg = c.priceFrom < 1990 ? GREEN_BG : YELLOW_BG;
+            } else {
+              dayBg = "#ffffff";
+            }
+          } else {
+            // en rango: override por color de rango
+            dayBg = c.isStart ? RANGE_START_BG : RANGE_BG;
+          }
+
+          const dayTextClass =
+            c.isStart ? "text-white" : "text-black";
+
+          // caja del día (relleno, sin borde marcado)
+          const boxBase =
+            "rounded-lg p-2 text-center transition min-h-[48px] flex items-center justify-center";
+
+          const interactivity = canPick && !c.isStart
+            ? "cursor-pointer hover:brightness-95"
+            : canPick
+              ? "cursor-pointer"
+              : "opacity-40";
+
+          return (
+            <div key={idx} className="flex flex-col items-stretch">
               <div
-                key={idx}
-                className={`${cls} ${interactivity}`}
+                className={`${boxBase} ${dayTextClass} ${interactivity}`}
+                style={{ backgroundColor: dayBg }}
                 onClick={() => canPick && onPickStart(c.date)}
                 title={c.date}
               >
                 <div className="text-sm font-medium">{dayjs(c.date).date()}</div>
-                {priceVisible && (
-                  <div className="text-[11px] mt-1">desde {Math.round(c.priceFrom!)}€</div>
-                )}
               </div>
-            );
-          })}
-        </div>
+              {/* Precio debajo, centrado y con altura fija para alinear filas */}
+              <div className="h-4 mt-1 text-[11px] text-center leading-4">
+                {priceVisible ? `${Math.round(c.priceFrom!)}€` : ""}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -181,7 +209,7 @@ export default function Calendar({
   const dep = selectedStart || "";
   const ret = dep ? addDaysISO(dep, tripLen - 1) : "";
 
-  // navegación ilimitada (si quieres limitar a 10 meses, pon un guard con diff)
+  // navegación
   const prev = () => setCursor((c) => c.subtract(1, "month"));
   const next = () => setCursor((c) => c.add(1, "month"));
 
@@ -189,16 +217,18 @@ export default function Calendar({
 
   return (
     <div>
-      {/* Controles de mes */}
+      {/* Controles: flechas solo */}
       <div className="flex items-center justify-between mb-4">
-        <button className="btn btn-secondary" onClick={prev}>Mes anterior</button>
-        <div className="text-sm font-semibold opacity-80">
-          {/* el título de cada mes está en cada card; aquí dejamos limpio */}
-        </div>
-        <button className="btn btn-secondary" onClick={next}>Mes siguiente</button>
+        <button className="btn btn-secondary" onClick={prev} aria-label="Mes anterior">
+          ‹
+        </button>
+        <div className="text-sm font-semibold opacity-80" />
+        <button className="btn btn-secondary" onClick={next} aria-label="Mes siguiente">
+          ›
+        </button>
       </div>
 
-      {/* Dos meses con más separación */}
+      {/* En móvil SOLO 1 mes (izquierdo). En escritorio, 2 meses. */}
       <div className="flex flex-col md:flex-row gap-8">
         <MonthGrid
           title={cursor.format("MMMM YYYY")}
@@ -209,18 +239,20 @@ export default function Calendar({
           tripLen={tripLen}
           onPickStart={setSelectedStart}
         />
-        <MonthGrid
-          title={right.format("MMMM YYYY")}
-          baseYear={rightYear}
-          baseMonth={rightMonth}
-          payload={payloadRight}
-          selectedStart={selectedStart}
-          tripLen={tripLen}
-          onPickStart={setSelectedStart}
-        />
+        <div className="hidden md:block md:w-1/2">
+          <MonthGrid
+            title={right.format("MMMM YYYY")}
+            baseYear={rightYear}
+            baseMonth={rightMonth}
+            payload={payloadRight}
+            selectedStart={selectedStart}
+            tripLen={tripLen}
+            onPickStart={setSelectedStart}
+          />
+        </div>
       </div>
 
-      {/* Barra inferior alineada */}
+      {/* Barra inferior */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
         <div className="text-sm">
           {selectedStart ? (
