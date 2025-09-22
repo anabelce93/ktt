@@ -29,3 +29,27 @@ body { @apply bg-white text-gray-900; }
 }
 .btn-secondary:hover { background-color: #a9b9bb; }
 
+/* Loader indeterminado */
+.loader-rail {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  border-radius: 9999px;
+  background: #f2f2f2;
+  overflow: hidden;
+}
+.loader-bar {
+  position: absolute;
+  height: 100%;
+  width: 40%;
+  left: -40%;
+  background: #bdcbcd;
+  border-radius: 9999px;
+  animation: loaderSlide 1.2s linear infinite;
+}
+@keyframes loaderSlide {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+
+
