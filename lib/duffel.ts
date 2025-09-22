@@ -1,23 +1,9 @@
 // lib/duffel.ts
 import { RoundTripSearch, FlightOption, SegmentInfo } from "@/lib/types";
 
-const RAW_TOKEN =
-  process.env.DUFFEL_TOKEN ||
-  process.env.DUFFEL_API_KEY ||               // <- compat con tu env actual
-  "";
-
-if (!RAW_TOKEN) {
-  console.warn("[duffel] DUFFEL_TOKEN / DUFFEL_API_KEY no configurado");
-}
-
-const AUTH = RAW_TOKEN.startsWith("Bearer ")
-  ? RAW_TOKEN
-  : `Bearer ${RAW_TOKEN}`;
-
-const DUFFEL_VERSION =
-  process.env.DUFFEL_VERSION || "v2";         // v1 expiró; usa v2 por defecto
-// Nota: el “modo test/live” va en el propio token: duffel_test_… / duffel_live_…
-// DUFFEL_ENV no es requerido por la API.
+const RAW_TOKEN = process.env.DUFFEL_TOKEN || process.env.DUFFEL_API_KEY || "";
+const AUTH = RAW_TOKEN.startsWith("Bearer ") ? RAW_TOKEN : `Bearer ${RAW_TOKEN}`;
+const DUFFEL_VERSION = process.env.DUFFEL_VERSION || "v2"; // v2 por defecto
 
 function parseDurationToMinutes(iso?: string) {
   if (!iso) return undefined;
@@ -28,10 +14,9 @@ function parseDurationToMinutes(iso?: string) {
 
 type DuffelDiag = { step: string; status?: number; id?: string; text?: string; body?: any };
 
-async function jsonOrText(res: Response) {
+async function bodyAs(res: Response) {
   const ct = res.headers.get("content-type") || "";
-  const body = ct.includes("json") ? await res.json().catch(() => null) : await res.text();
-  return body;
+  return ct.includes("json") ? await res.json().catch(() => null) : await res.text();
 }
 
 export async function searchRoundTripBoth(
@@ -39,7 +24,8 @@ export async function searchRoundTripBoth(
 ): Promise<{ options: FlightOption[]; diag?: DuffelDiag[] }> {
   const diag: DuffelDiag[] = [];
 
-  const body = {
+  // Slices: BCN->ICN y ICN->BCN. Si quieres añadir GMP, lo hacemos luego.
+  const offerReq = {
     data: {
       passengers: Array.from({ length: pax }, () => ({ type: "adult" })),
       slices: [
@@ -47,56 +33,58 @@ export async function searchRoundTripBoth(
         { origin: "ICN", destination: origin, departure_date: ret },
       ],
       cabin_class: "economy",
-      // Puedes añadir filtros (max_connections, allowed_carriers, etc.)
-    },
+    }
   };
 
-  const r = await fetch("https://api.duffel.com/air/offer_requests", {
+  // v2: podemos pedir las ofertas inline
+  const r = await fetch("https://api.duffel.com/air/offer_requests?return_offers=true", {
     method: "POST",
     headers: {
       Authorization: AUTH,
       "Duffel-Version": DUFFEL_VERSION,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(offerReq),
     cache: "no-store",
   });
 
   const reqId1 = r.headers.get("x-request-id") || undefined;
   if (!r.ok) {
-    diag.push({ step: "offer_requests", status: r.status, id: reqId1, text: String(await jsonOrText(r)) });
+    diag.push({ step: "offer_requests", status: r.status, id: reqId1, text: String(await bodyAs(r)) });
     return { options: [], diag };
   }
 
   const req = await r.json();
-  const offersUrl =
-    req?.data?.offers?.links?.self ||
-    req?.data?.links?.offers ||
-    req?.data?.links?.offers_url;
 
-  if (!offersUrl) {
-    diag.push({ step: "extract_offers_url", body: req });
-    return { options: [], diag };
+  // 1) Intentar ofertas inline (v2)
+  const inlineOffers: any[] =
+    req?.data?.offers?.data || req?.data?.offers || req?.included_offers || [];
+
+  let offers: any[] = inlineOffers;
+
+  // 2) Si no vinieron inline, seguir link (back-compat)
+  if (!offers?.length) {
+    const offersUrl =
+      req?.data?.offers?.links?.self ||
+      req?.data?.links?.offers ||
+      req?.data?.links?.offers_url;
+
+    if (offersUrl) {
+      const r2 = await fetch(offersUrl, {
+        headers: { Authorization: AUTH, "Duffel-Version": DUFFEL_VERSION },
+        cache: "no-store",
+      });
+      const reqId2 = r2.headers.get("x-request-id") || undefined;
+      if (!r2.ok) {
+        diag.push({ step: "offers", status: r2.status, id: reqId2, text: String(await bodyAs(r2)) });
+        return { options: [], diag };
+      }
+      const offersRes: any = await r2.json();
+      offers = offersRes?.data || offersRes?.offers || [];
+    }
   }
 
-  const r2 = await fetch(offersUrl, {
-    headers: {
-      Authorization: AUTH,
-      "Duffel-Version": DUFFEL_VERSION,
-    },
-    cache: "no-store",
-  });
-
-  const reqId2 = r2.headers.get("x-request-id") || undefined;
-  if (!r2.ok) {
-    diag.push({ step: "offers", status: r2.status, id: reqId2, text: String(await jsonOrText(r2)) });
-    return { options: [], diag };
-  }
-
-  const offersRes: any = await r2.json();
-  const offers: any[] = offersRes?.data || offersRes?.offers || [];
-
-  const options: FlightOption[] = offers.map((o: any) => {
+  const options: FlightOption[] = (offers || []).map((o: any) => {
     const [outSlice, retSlice] = o.slices || [];
     const mapSegs = (sl: any): SegmentInfo[] =>
       (sl?.segments || []).map((sg: any) => ({
@@ -112,7 +100,8 @@ export async function searchRoundTripBoth(
     const back = mapSegs(retSlice);
 
     const perPerson = Math.round(Number(o.total_amount || 0) / Math.max(1, pax));
-    const airlineCodes = Array.from(new Set([...out, ...back].map(s => s.marketing_carrier).filter(Boolean))) as string[];
+    const airlineCodes = Array.from(new Set([...out, ...back]
+      .map(s => s.marketing_carrier).filter(Boolean))) as string[];
 
     return {
       id: o.id,
@@ -124,13 +113,12 @@ export async function searchRoundTripBoth(
       airline_codes: airlineCodes,
     };
   })
-  .filter(o => Number.isFinite(o.total_amount_per_person) && o.total_amount_per_person > 0)
+  .filter(x => Number.isFinite(x.total_amount_per_person) && x.total_amount_per_person > 0)
   .sort((a, b) => a.total_amount_per_person - b.total_amount_per_person)
   .slice(0, limit);
 
   if (!options.length) {
-    // Si no hay ofertas, deja constancia para ver por qué
-    diag.push({ step: "no_offers_returned", body: { count: offers?.length ?? 0 } });
+    diag.push({ step: "no_offers_returned", body: { inlineCount: inlineOffers?.length ?? 0 } });
   }
 
   return { options, diag: diag.length ? diag : undefined };
