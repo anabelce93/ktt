@@ -72,14 +72,15 @@ export default function Widget() {
             />
 
             {/* Calendario */}
-            <Calendar
-              origin={origin}
-              pax={pax}
-              onPick={({ date, ret }) => {
-                setDates({ dep: date, ret });
-                setStep("flights");
-              }}
-            />
+          <Calendar
+  origin={origin}
+  pax={pax}
+  onConfirm={({ dep, ret }) => {
+    setDates({ dep, ret });
+    setStep("flights");
+  }}
+/>
+
 
             {/* bajo el calendario: que queden en una sola fila también en móvil */}
             <div className="flex justify-between mt-4">
@@ -92,17 +93,17 @@ export default function Widget() {
       )}
 
       {step === "flights" && dates && (
-        <FlightsList
-          origin={origin}
-          departure={dates.dep}
-          ret={dates.ret}
-          pax={pax}
-          onBack={() => setStep("cal")}
-          onConfirm={(id: string, opt: any) => {
-            setSelectedFlightId(id);
-            setSelectedOption(opt);
-            setStep("hot"); // avanza después de confirmar
-          }}
+<FlightsList
+  origin={origin}
+  departure={dates!.dep}
+  ret={dates!.ret}
+  pax={pax}
+  onBack={() => setStep("cal")}
+  onConfirm={(id: string, opt: any) => {
+    setSelectedFlightId(id);
+    setSelectedOption(opt);
+    setStep("hot"); // avanzar tras confirmar
+  }}
         />
       )}
 
