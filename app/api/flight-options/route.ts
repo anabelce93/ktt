@@ -1,4 +1,3 @@
-// app/api/flight-options/route.ts
 import { NextResponse } from "next/server";
 import { searchRoundTripBoth } from "@/lib/duffel";
 
