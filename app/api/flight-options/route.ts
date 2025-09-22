@@ -1,29 +1,49 @@
 // app/api/flight-options/route.ts
 import { NextResponse } from "next/server";
-import { searchRoundTripBoth } from "@/lib/duffel"; // tu función actual
+import { searchOffers } from "@/lib/duffel"; // o searchRoundTripBoth si usas esa
+// ^ usa la función real que tengas exportada (la que devuelve opciones)
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const origin  = searchParams.get("origin") || "";
-    const dep     = searchParams.get("departure") || "";
-    const ret     = searchParams.get("return") || "";
-    const paxStr  = searchParams.get("pax") || "1";
-    const pax     = Math.max(1, Math.min(6, Number(paxStr) || 1));
+    const origin = searchParams.get("origin") ?? "";
+    // acepta 'dep' o 'departure'
+    const dep = searchParams.get("dep") ?? searchParams.get("departure") ?? "";
+    const ret = searchParams.get("ret") ?? "";
+    const pax = Number(searchParams.get("pax") ?? "1");
+    const limit = Number(searchParams.get("limit") ?? "20");
 
-    if (!origin || !dep || !ret) {
+    if (!origin || !dep || !ret || !pax) {
       return NextResponse.json(
-        { options: [], diag: [{ error: "missing_params", detail: { origin, dep, ret } }] },
-        { status: 200 }
+        { ok: false, error: "missing_params", hint: { origin, dep, ret, pax } },
+        { status: 400 }
       );
     }
 
-    const { options, diag } = await searchRoundTripBoth({ origin, dep, ret, pax, limit: 20 });
+    // Si usas un wrapper que ya busca ICN/GMP, llámalo aquí.
+    // Si no, llama a searchOffers dos veces y une resultados.
+    const destinations = ["ICN", "GMP"];
+    const all = (
+      await Promise.all(
+        destinations.map((destination) =>
+          searchOffers({ origin, destination, dep, ret, pax, limit })
+        )
+      )
+    ).flat();
 
-    return NextResponse.json({ origin, departure: dep, return: ret, pax, options, diag }, { status: 200 });
+    // Ordena, recorta a 20 por si acaso
+    const sorted = all.sort(
+      (a, b) => a.total_amount_per_person - b.total_amount_per_person
+    );
+    return NextResponse.json({ ok: true, options: sorted.slice(0, limit) });
   } catch (err: any) {
-    const safe = typeof err?.message === "string" ? err.message : "unknown_error";
-    const diag = [{ error: "exception", detail: safe }];
-    return NextResponse.json({ options: [], diag }, { status: 200 });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "server_error",
+        message: err?.message ?? String(err),
+      },
+      { status: 500 }
+    );
   }
 }
