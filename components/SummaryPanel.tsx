@@ -1,199 +1,166 @@
 "use client";
-import React, { useMemo, useState } from "react";
-import { hhmm, formatDateES } from "@/lib/format";
-
-type SegmentInfo = {
-  origin: string;
-  destination: string;
-  departure: string; // ISO
-  arrival: string;   // ISO
-  connection_airport?: string;
-  connection_minutes?: number;
-};
-
-type OptionLike = {
-  id: string;
-  out: SegmentInfo[];
-  ret: SegmentInfo[];
-  delta_vs_base_eur: number;
-  per_person_flight?: number;
-};
-
-function evenUpTo(n: number, max: number) {
-  if (n <= 0) return 0;
-  let x = n;
-  if (x % 2 !== 0) x += 1;      // subir al siguiente par
-  if (x > max) x = max;         // no pasar del total de pax
-  return x;
-}
+import React, { useMemo, useState, useEffect } from "react";
+import { formatDateES } from "@/lib/format";
+import { airlineName } from "@/lib/airlines";
+import type { FlightOption } from "./FlightsList";
 
 export default function SummaryPanel({
-  visible,
+  openMobile = false,
+  onToggleMobile,
+  origin,
   pax,
-  option,
+  dates,
+  selected,
   lux,
   singleRooms,
   insurance,
-  baseFarePerPerson,
+  baseFarePerPerson, // pásame el base según temporada
 }: {
-  visible: boolean;
+  openMobile?: boolean;
+  onToggleMobile?: (open: boolean) => void;
+  origin: string;
   pax: number;
-  option: OptionLike | null;
+  dates: { dep: string; ret: string } | null;
+  selected: FlightOption | null;
   lux: boolean;
-  singleRooms: number; // valor elegido por el usuario (puede ser impar)
+  singleRooms: number;
   insurance: boolean;
   baseFarePerPerson: number;
 }) {
-  const [openMobile, setOpenMobile] = useState(false);
+  const safeSingles = useMemo(() => {
+    // regla: no puede quedar 1 persona “suelta”
+    if (singleRooms === 0) return 0;
+    if (singleRooms >= pax) return pax;
+    // si el número de personas es par, 2,4,6... se puede tener singles en par sin problema
+    // si es impar, ajustamos: 1 single -> 1 (los otros forman dobles); 3 singles de 5 -> 5, etc.
+    const parityIssue = (pax - singleRooms) === 1; // quedaría 1 suelto
+    return parityIssue ? singleRooms + 1 : singleRooms;
+  }, [singleRooms, pax]);
 
-  // Ajuste lógico: habitaciones individuales efectivas (par y ≤ pax)
-  const effectiveSingles = useMemo(() => evenUpTo(singleRooms, pax), [singleRooms, pax]);
+  // costes
+  const hotelPlus = lux ? 400 * pax : 0;
+  const singlesPlus = 280 * safeSingles;
+  const insurancePlus = insurance ? 100 * pax : 0;
 
-  const luxSupp = lux ? 400 : 0;       // €/persona
-  const insSupp = insurance ? 100 : 0; // €/persona
-  const singleSuppTotal = effectiveSingles * 280; // 280 € por persona en individual (total)
+  // vuelo (por persona) viene en selected?.total_amount_per_person
+  const perPerson = Math.round(
+    baseFarePerPerson + (selected ? selected.total_amount_per_person : 0) + (lux ? 400 : 0) + (insurance ? 100 : 0)
+  );
 
-  const perPersonFlight = option?.per_person_flight || 0;
-  const delta = option?.delta_vs_base_eur || 0;
+  const total = perPerson * pax + singlesPlus;
 
-  const pricePerPerson = useMemo(() => {
-    // base terrestre + vuelo base (si lo hay) + delta + suplementos por persona
-    return Math.round(baseFarePerPerson + perPersonFlight + delta + luxSupp + insSupp);
-  }, [baseFarePerPerson, perPersonFlight, delta, luxSupp, insSupp]);
+  // escalas resumen
+  const scaleOut = selected && selected.out.length > 1 ? selected.out.slice(0, -1).map(s => s.destination).join(" · ") : "—";
+  const scaleRet = selected && selected.ret.length > 1 ? selected.ret.slice(0, -1).map(s => s.destination).join(" · ") : "—";
 
-  const total = useMemo(() => {
-    return pricePerPerson * pax + singleSuppTotal;
-  }, [pricePerPerson, pax, singleSuppTotal]);
-
-  const upfront = Math.round(total * 0.6 * 100) / 100;
-  const last = Math.round(total * 0.4 * 100) / 100;
-
-  const firstOut = option?.out?.[0];
-  const lastOut = option?.out?.slice(-1)[0];
-  const firstRet = option?.ret?.[0];
-  const lastRet = option?.ret?.slice(-1)[0];
-
-  // escalas (si hay 2 segmentos)
-  const outHasConn = (option?.out?.length || 0) > 1;
-  const retHasConn = (option?.ret?.length || 0) > 1;
-
-  const outConnAirport = firstOut?.connection_airport;
-  const outConnMinutes = firstOut?.connection_minutes;
-  const retConnAirport = firstRet?.connection_airport;
-  const retConnMinutes = firstRet?.connection_minutes;
+  // móvil: cajón inferior
+  const [open, setOpen] = useState(openMobile);
+  useEffect(() => setOpen(openMobile), [openMobile]);
+  const toggle = () => {
+    const v = !open;
+    setOpen(v);
+    onToggleMobile && onToggleMobile(v);
+  };
 
   const content = (
     <div className="text-sm space-y-2">
-      <div className="font-semibold text-base">Corea del Sur Esencial 10 días</div>
-      <div className="opacity-60">Resumen</div>
+      <div className="font-semibold">Corea del Sur Esencial · 10 días</div>
 
-      <div><strong>{pax}</strong> persona{pax === 1 ? "" : "s"}</div>
+      <div>Personas: <strong>{pax}</strong></div>
+      <div>Origen: <strong>{origin}</strong></div>
 
-      {option && (
-        <>
-          <div className="mt-2 font-medium">Viaje de ida</div>
-          <div>
-            {firstOut?.origin} &nbsp;–&nbsp; {lastOut?.destination}
-          </div>
-          <div>
-            {firstOut && `${formatDateES(firstOut.departure)} · ${hhmm(firstOut.departure)}`}
-            {" "}–{" "}
-            {lastOut && `${hhmm(lastOut.arrival)}`}
-          </div>
-          {outHasConn && outConnAirport && typeof outConnMinutes === "number" && (
-            <div className="opacity-70">
-              1 escala en <strong>{outConnAirport}</strong> · {Math.floor(outConnMinutes / 60)} h {outConnMinutes % 60} min
+      <div className="mt-2">
+        <div className="font-medium text-xs opacity-70">Viaje de ida</div>
+        {selected ? (
+          <>
+            <div>
+              {selected.out[0].origin} ({hh(selected.out[0].departure)}) – {selected.out[selected.out.length - 1].destination} ({hh(selected.out[selected.out.length - 1].arrival)})
             </div>
-          )}
-
-          <div className="mt-2 font-medium">Viaje de vuelta</div>
-          <div>
-            {firstRet?.origin} &nbsp;–&nbsp; {lastRet?.destination}
-          </div>
-          <div>
-            {firstRet && `${formatDateES(firstRet.departure)} · ${hhmm(firstRet.departure)}`}
-            {" "}–{" "}
-            {lastRet && `${hhmm(lastRet.arrival)}`}
-          </div>
-          {retHasConn && retConnAirport && typeof retConnMinutes === "number" && (
-            <div className="opacity-70">
-              1 escala en <strong>{retConnAirport}</strong> · {Math.floor(retConnMinutes / 60)} h {retConnMinutes % 60} min
+            <div className="text-xs opacity-70">Escalas: {scaleOut}</div>
+            <div className="text-xs opacity-70">
+              {formatDateES(dates?.dep || "")}
             </div>
-          )}
-        </>
-      )}
-
-      <div className="mt-2 font-medium">Alojamiento</div>
-      <div>{lux ? "Luxury (+400 €/persona)" : "Standard · Incluido"}</div>
-      {effectiveSingles > 0 && (
-        <div>Habitaciones individuales: {effectiveSingles} × +280 €</div>
-      )}
-
-      <div className="mt-2 font-medium">Seguro</div>
-      <div>{insurance ? "Ampliado (+100 €/persona)" : "Básico · Incluido"}</div>
-
-      <div className="mt-3 border-t pt-2">
-        <div>Precio por persona:</div>
-        <div className="text-lg font-semibold">{pricePerPerson.toLocaleString("es-ES")} €</div>
+          </>
+        ) : (
+          <div className="opacity-50">—</div>
+        )}
       </div>
 
-      <div className="border-t pt-2">
-        <div>Total:</div>
-        <div className="text-lg font-semibold">{total.toLocaleString("es-ES")} €</div>
-      </div>
-
-      <div className="border-t pt-2">
-        <div>Hoy pagas (60%):</div>
-        <div className="font-semibold">{upfront.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €</div>
-      </div>
       <div>
-        <div>Último pago (40%):</div>
-        <div className="font-semibold">{last.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €</div>
+        <div className="font-medium text-xs opacity-70">Viaje de vuelta</div>
+        {selected ? (
+          <>
+            <div>
+              {selected.ret[0].origin} ({hh(selected.ret[0].departure)}) – {selected.ret[selected.ret.length - 1].destination} ({hh(selected.ret[selected.ret.length - 1].arrival)})
+            </div>
+            <div className="text-xs opacity-70">Escalas: {scaleRet}</div>
+            <div className="text-xs opacity-70">
+              {formatDateES(dates?.ret || "")}
+            </div>
+          </>
+        ) : (
+          <div className="opacity-50">—</div>
+        )}
+      </div>
+
+      <div className="mt-2">
+        <div>Alojamiento: <strong>{lux ? "Luxury (+400€/persona)" : "Standard (incluido)"}</strong></div>
+        <div>Individuales: <strong>{safeSingles}</strong>{safeSingles>0 && <span> · +{safeSingles * 280}€</span>}</div>
+        <div>Seguro: <strong>{insurance ? "Ampliado (+100€/persona)" : "Básico (incluido)"}</strong></div>
+      </div>
+
+      <div className="pt-2 border-t">
+        <div className="font-medium">Precio por persona: <strong>{perPerson} €</strong></div>
+        <div className="font-semibold">Total: <strong>{total} €</strong></div>
+      </div>
+
+      <div className="pt-2 border-t">
+        <div>Hoy pagas (60%): <strong>{Math.round(total * 0.6)} €</strong></div>
+        <div>Último pago (40%): <strong>{Math.round(total * 0.4)} €</strong></div>
       </div>
     </div>
   );
 
-  if (!visible) return null;
-
   return (
     <>
-      {/* Desktop: panel fijo a la derecha */}
-      <div className="hidden lg:block sticky top-4 self-start w-[320px] border rounded-2xl p-4">
+      {/* Escritorio: panel lateral */}
+      <div className="hidden lg:block sticky top-4 p-3 rounded-lg border border-gray-200 bg-white">
         {content}
-        <button className="btn btn-primary mt-3 w-full">Reservar</button>
+        <button className="btn btn-primary w-full mt-3">Reservar</button>
       </div>
 
-      {/* Móvil: hoja deslizable que NO ocupa todo el alto */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0">
-        {/* Pequeño “fondo” visible arriba */}
-        <div className="mx-auto max-w-screen-sm">
-          <div
-            className="bg-white border-t rounded-t-2xl shadow-[0_-4px_20px_rgba(0,0,0,0.12)]"
-            style={{
-              maxHeight: openMobile ? "80vh" : "52px",
-              transition: "max-height 220ms ease",
-              overflow: "hidden",
-            }}
-          >
+      {/* Móvil: cajón inferior con pestaña */}
+      <div className="lg:hidden fixed left-0 right-0 bottom-0 z-40">
+        <div className="flex justify-center">
+          <button
+            aria-label="Abrir resumen"
+            onClick={toggle}
+            className="w-10 h-5 rounded-t bg-gray-300"
+          />
+        </div>
+        <div
+          className="bg-white border-t border-gray-200 p-4 transition-transform"
+          style={{
+            transform: open ? "translateY(0)" : "translateY(70%)",
+            height: "70vh",
+          }}
+        >
+          <div className="flex justify-center mb-2">
             <button
-              className="w-full flex items-center justify-between p-3"
-              onClick={() => setOpenMobile((o) => !o)}
-              aria-label={openMobile ? "Cerrar resumen" : "Abrir resumen"}
-            >
-              <div className="text-sm">
-                Total: <strong>{total.toLocaleString("es-ES")} €</strong>
-              </div>
-              <div className="text-sm opacity-70">{openMobile ? "▼" : "▲"}</div>
-            </button>
-            {openMobile && (
-              <div className="p-4 border-t">
-                {content}
-                <button className="btn btn-primary mt-3 w-full">Reservar</button>
-              </div>
-            )}
+              aria-label="Cerrar resumen"
+              onClick={toggle}
+              className="w-10 h-1.5 rounded bg-gray-300"
+            />
           </div>
+          {content}
+          <button className="btn btn-primary w-full mt-3">Reservar</button>
         </div>
       </div>
     </>
   );
+}
+
+function hh(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 }
