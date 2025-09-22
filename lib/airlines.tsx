@@ -1,7 +1,6 @@
-// lib/airlines.ts
+// lib/airlines.tsx
 import React from "react";
 
-// Mapa IATA -> Nombre visible
 const AIRLINES: Record<string, string> = {
   QR: "Qatar Airways",
   EK: "Emirates",
@@ -35,14 +34,13 @@ export function airlineName(iata?: string): string {
 }
 
 /**
- * Logo simple inline (SVG) por aerolínea/código.
- * No es el logo oficial: es una chapita circular con las siglas.
+ * Logo simple (SVG) con las siglas de la aerolínea dentro de un círculo.
+ * No es el logo oficial; es una insignia estilizada para dar identidad visual.
  */
 export function AirlineLogo({ code, size = 20 }: { code?: string; size?: number }) {
-  const c = (code || "").toUpperCase();
-  const label = c || "??";
+  const c = (code || "").toUpperCase() || "??";
 
-  // paletas por código para variar (fallback a #91c5c5)
+  // Colores por aerolínea para variar (aprox, no oficiales)
   const palette: Record<string, { bg: string; fg: string }> = {
     QR: { bg: "#8a1538", fg: "#ffffff" }, // Qatar granate
     TK: { bg: "#c60c30", fg: "#ffffff" }, // Turkish rojo
@@ -52,7 +50,7 @@ export function AirlineLogo({ code, size = 20 }: { code?: string; size?: number 
     KL: { bg: "#00a1de", fg: "#ffffff" }, // KLM azul
     LH: { bg: "#ffcc00", fg: "#1a1a1a" }, // Lufthansa amarillo
     IB: { bg: "#d32f2f", fg: "#ffffff" }, // Iberia rojo
-    UX: { bg: "#2e7d32", fg: "#ffffff" }, // Air Europa (estilizado)
+    UX: { bg: "#2e7d32", fg: "#ffffff" }, // Air Europa verde (no real)
     BA: { bg: "#1b3a6b", fg: "#ffffff" }, // BA azul
     ZH: { bg: "#b31e22", fg: "#ffffff" }, // Shenzhen rojo
   };
@@ -63,7 +61,7 @@ export function AirlineLogo({ code, size = 20 }: { code?: string; size?: number 
       width={size}
       height={size}
       viewBox="0 0 40 40"
-      aria-label={label}
+      aria-label={c}
       role="img"
       style={{ borderRadius: "50%", flexShrink: 0 }}
     >
@@ -77,13 +75,13 @@ export function AirlineLogo({ code, size = 20 }: { code?: string; size?: number 
         fontWeight="700"
         fill={colors.fg}
       >
-        {label}
+        {c}
       </text>
     </svg>
   );
 }
 
-// Lista de aerolíneas a rotar en el loader
+/** Lista que usa el loader para rotar nombres/códigos de aerolíneas */
 export const AIRLINE_LIST_FOR_LOADER = [
   "QR", "TK", "KE", "OZ", "AF", "KL", "LH", "IB", "UX", "BA", "ZH",
 ].map((code) => ({ code, name: AIRLINES[code] || code }));
