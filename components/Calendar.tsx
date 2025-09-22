@@ -1,197 +1,167 @@
 "use client";
+
 import React, { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import "dayjs/locale/es";
-import isoWeek from "dayjs/plugin/isoWeek";
-import utc from "dayjs/plugin/utc";
-import timezone from "dayjs/plugin/timezone";
-import { formatDateES } from "@/lib/format";
-
-dayjs.extend(isoWeek);
-dayjs.extend(utc);
-dayjs.extend(timezone);
-dayjs.tz.setDefault("Europe/Madrid");
 dayjs.locale("es");
 
-type DayEntry = {
-  date: string;
-  show: boolean;
-  priceFrom: number | null;
-  baseFare: number;
+type DayPayload = {
+  date: string;       // YYYY-MM-DD
+  show: boolean;      // disponible
+  priceFrom: number | null; // precio base+vuelo por persona (entero) o null
 };
-
-type MonthPayload = {
+type CalendarPayload = {
   origin: string;
   pax: number;
   year: number;
-  month: number;
-  days: DayEntry[];
+  month: number; // 0-based para JS, pero en API usamos 0=enero? (nuestro endpoint ya convierte)
+  days: DayPayload[];
 };
 
-function toYMD(d: dayjs.Dayjs) {
+type Props = {
+  origin: string;
+  pax: number;
+  onSelect: (range: { dep: string; ret: string } | null) => void; // avisamos al padre
+};
+
+const TRIP_LEN = 10; // 10 días totales -> vuelta 9 días después
+
+function isoYMD(d: dayjs.Dayjs) {
   return d.format("YYYY-MM-DD");
 }
-function parseYMD(s: string) {
-  return dayjs.tz(s, "Europe/Madrid");
-}
-function isSameDay(a: dayjs.Dayjs, b: dayjs.Dayjs) {
-  return a.year() === b.year() && a.month() === b.month() && a.date() === b.date();
-}
-function isInRangeInclusive(d: dayjs.Dayjs, start: dayjs.Dayjs, end: dayjs.Dayjs) {
-  return (d.isAfter(start) || isSameDay(d, start)) && (d.isBefore(end) || isSameDay(d, end));
+
+function addDaysISO(iso: string, n: number) {
+  return dayjs(iso).add(n, "day").format("YYYY-MM-DD");
 }
 
-const COLOR_PRIMARY = "#91c5c5"; // rango seleccionado
-const COLOR_HIGHLIGHT_GREEN = "#DFF5E1"; // < 1990
-const COLOR_HIGHLIGHT_YELLOW = "#FFF6CC"; // >= 1990
-const COLOR_DISABLED = "#f2f2f2";
-const TEXT_DEFAULT = "#111111";
+function same(isoA?: string, isoB?: string) {
+  return !!isoA && !!isoB && isoA === isoB;
+}
 
-function DayCell({
-  date,
-  inMonth,
-  entry,
-  isInTrip,
-  isStart,
-  onPickStart,
-}: {
-  date: dayjs.Dayjs;
-  inMonth: boolean;
-  entry: DayEntry | undefined;
-  isInTrip: boolean;
-  isStart: boolean;
-  onPickStart: (iso: string) => void;
-}) {
-  const iso = toYMD(date);
-  const clickable = !!entry?.show && inMonth;
-
-  const bg = (() => {
-    if (isInTrip) return COLOR_PRIMARY;
-    if (!entry || !entry.show || !inMonth) return COLOR_DISABLED;
-    if (entry.priceFrom != null) {
-      if (entry.priceFrom < 1990) return COLOR_HIGHLIGHT_GREEN;
-      return COLOR_HIGHLIGHT_YELLOW;
-    }
-    return COLOR_DISABLED;
-  })();
-
-  // Precio: solo lo mostramos si NO está en el rango, o si es el inicio del rango
-  const showPrice =
-    entry && entry.show && entry.priceFrom != null && (!isInTrip || isStart);
-
-  const priceStr = showPrice ? `${Math.round(entry!.priceFrom!)}€` : "";
-
-  return (
-    <div className="flex flex-col items-center">
-      <button
-        type="button"
-        onClick={() => clickable && onPickStart(iso)}
-        disabled={!clickable}
-        className="w-9 h-9 rounded-md flex items-center justify-center text-sm"
-        style={{
-          background: bg,
-          color: isInTrip ? "#ffffff" : TEXT_DEFAULT,
-          opacity: inMonth ? 1 : 0.4,
-          boxShadow: isStart ? "inset 0 0 0 2px #000000" : "none",
-          cursor: clickable ? "pointer" : "default",
-        }}
-        aria-label={iso}
-      >
-        {date.date()}
-      </button>
-      <div
-        className="text-xs mt-1 text-center"
-        style={{ minHeight: 16, lineHeight: "16px", width: "100%" }}
-      >
-        {priceStr}
-      </div>
-    </div>
-  );
+function inRange(iso: string, start?: string, end?: string) {
+  if (!start || !end) return false;
+  const t = dayjs(iso).valueOf();
+  return t >= dayjs(start).valueOf() && t <= dayjs(end).valueOf();
 }
 
 function MonthGrid({
   title,
   baseYear,
-  baseMonth,
+  baseMonth, // 0..11
   payload,
   selectedStart,
-  tripLen,
-  onPickStart,
 }: {
   title: string;
   baseYear: number;
   baseMonth: number;
-  payload: MonthPayload | null;
-  selectedStart: string | null;
-  tripLen: number;
-  onPickStart: (iso: string) => void;
+  payload: CalendarPayload | null;
+  selectedStart?: string | null;
 }) {
-  const firstOfMonth = dayjs.tz().year(baseYear).month(baseMonth).date(1);
-  const daysInMonth = firstOfMonth.daysInMonth();
-  const startWeekday = (firstOfMonth.isoWeekday() + 6) % 7; // lunes=0
-  const totalCells = Math.ceil((startWeekday + daysInMonth) / 7) * 7;
+  const firstDay = dayjs(new Date(baseYear, baseMonth, 1));
+  const startWeekDay = firstDay.day(); // 0 dom..6 sab
+  const daysInMonth = firstDay.daysInMonth();
 
-  const selStart = selectedStart ? parseYMD(selectedStart) : null;
-  const selEnd = selStart ? selStart.add(tripLen - 1, "day") : null;
+  const startISO = selectedStart || null;
+  const endISO = startISO ? addDaysISO(startISO, TRIP_LEN - 1) : null;
 
-  const map = useMemo(() => {
-    const m = new Map<string, DayEntry>();
-    if (payload?.days) for (const d of payload.days) m.set(d.date, d);
-    return m;
-  }, [payload]);
-
-  const cells = [];
-  for (let i = 0; i < totalCells; i++) {
-    const d = firstOfMonth.add(i - startWeekday, "day");
-    const inMonth = d.month() === baseMonth;
-    const entry = map.get(toYMD(d));
-    const isTrip = selStart && selEnd ? isInRangeInclusive(d, selStart, selEnd) : false;
-    const isStart = selStart ? isSameDay(d, selStart) : false;
-
-    cells.push(
-      <div key={i} className="py-1">
-        <DayCell
-          date={d}
-          inMonth={!!inMonth}
-          entry={entry}
-          isInTrip={!!isTrip}
-          isStart={!!isStart}
-          onPickStart={onPickStart}
-        />
-      </div>
-    );
+  const cells: Array<{ iso?: string; day?: number; info?: DayPayload }> = [];
+  for (let i = 0; i < startWeekDay; i++) cells.push({});
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = dayjs(new Date(baseYear, baseMonth, d)).format("YYYY-MM-DD");
+    const info = payload?.days.find((x) => x.date === iso);
+    cells.push({ iso, day: d, info });
   }
 
   return (
     <div className="flex-1">
-      <div className="text-center font-semibold mb-2 capitalize">{title}</div>
-      <div className="grid grid-cols-7 text-xs opacity-70 mb-1">
-        <div>L</div><div>M</div><div>X</div><div>J</div><div>V</div><div>S</div><div>D</div>
+      <div className="text-center font-semibold mb-2 capitalize">
+        {title}
       </div>
-      <div className="grid grid-cols-7 gap-y-1">{cells}</div>
+
+      <div className="grid grid-cols-7 text-xs opacity-70 mb-1">
+        {["L", "M", "X", "J", "V", "S", "D"].map((d) => (
+          <div key={d} className="text-center py-1">
+            {d}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-2">
+        {cells.map((c, idx) => {
+          if (!c.iso || !c.day) {
+            return <div key={idx} className="h-12" />;
+          }
+
+          const isStart = same(c.iso, startISO || undefined);
+          const partOfTrip =
+            startISO && endISO ? inRange(c.iso, startISO, endISO) : false;
+
+          // colores:
+          // - día seleccionado (inicio): 91c5c5
+          // - rango del viaje: 91c5c5 más suave
+          // - disponible <1990€: verde claro (#CDECCE aprox), texto negro
+          // - disponible >=1990€: amarillo pálido (#FFF6CC aprox), texto negro
+          let bg = "";
+          let text = "text-black";
+          if (isStart) {
+            bg = "bg-[#91c5c5]";
+          } else if (partOfTrip) {
+            bg = "bg-[#91c5c5]/30";
+          } else if (c.info?.show && typeof c.info.priceFrom === "number") {
+            if ((c.info.priceFrom as number) < 1990) bg = "bg-[#cdecce]";
+            else bg = "bg-[#fff6cc]";
+          } else {
+            bg = "bg-transparent";
+            text = "text-gray-400";
+          }
+
+          // Hacemos click en el día solo si es seleccionable (show=true).
+          // La “confirmación” real la hará el usuario con el botón Siguiente en el padre.
+          return (
+            <button
+              key={idx}
+              type="button"
+              className={`rounded-lg ${bg} ${text} p-2 h-16 flex flex-col items-center justify-center`}
+              onClick={() => {
+                // El propio padre es quien guarda la selección,
+                // aquí no hacemos nada más que enviar el rango.
+                // Si el día no es seleccionable, no hacemos nada.
+                if (!c.info?.show) return;
+                const dep = c.iso;
+                const ret = addDaysISO(dep, TRIP_LEN - 1);
+                // Notificamos selección provisional:
+                const ev = new CustomEvent("calendar:select", {
+                  detail: { dep, ret },
+                });
+                window.dispatchEvent(ev as any);
+              }}
+            >
+              <div className="text-sm font-medium">{c.day}</div>
+              {/* Precio debajo, centrado; si el día está dentro del rango, escondemos precio, salvo el día inicio */}
+              {!partOfTrip || isStart ? (
+                <div className="text-[11px] mt-1">
+                  {typeof c.info?.priceFrom === "number"
+                    ? `${Math.round(c.info.priceFrom)}€`
+                    : ""}
+                </div>
+              ) : (
+                <div className="text-[11px] mt-1">&nbsp;</div>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-export default function Calendar({
-  origin,
-  pax,
-  onConfirm,
-}: {
-  origin: string;
-  pax: number;
-  onConfirm: (range: { dep: string; ret: string }) => void;
-}) {
-  const TRIP_LEN = 10;
-  const [cursor, setCursor] = useState(() => {
-    const now = dayjs.tz();
-    return now.add(1, "month").startOf("month");
-  });
-
-  const [payloadLeft, setPayloadLeft] = useState<MonthPayload | null>(null);
-  const [payloadRight, setPayloadRight] = useState<MonthPayload | null>(null);
-
-  const [selectedStart, setSelectedStart] = useState<string | null>(null);
+export default function Calendar({ origin, pax, onSelect }: Props) {
+  const [cursor, setCursor] = useState(dayjs().add(1, "month").startOf("month")); // mes siguiente
+  const [payloadLeft, setPayloadLeft] = useState<CalendarPayload | null>(null);
+  const [payloadRight, setPayloadRight] = useState<CalendarPayload | null>(null);
+  const [selected, setSelected] = useState<{ dep: string; ret: string } | null>(
+    null
+  );
 
   const leftYear = cursor.year();
   const leftMonth = cursor.month();
@@ -199,81 +169,77 @@ export default function Calendar({
   const rightYear = right.year();
   const rightMonth = right.month();
 
+  // escucha selección provisional desde los días
   useEffect(() => {
-    let cancelled = false;
+    const onPick = (e: any) => {
+      setSelected(e.detail);
+      onSelect(e.detail); // avisamos al padre para habilitar “Siguiente”
+    };
+    window.addEventListener("calendar:select", onPick as any);
+    return () => window.removeEventListener("calendar:select", onPick as any);
+  }, [onSelect]);
+
+  // carga datos 2 meses
+  async function fetchMonth(y: number, m: number) {
+    const qs = new URLSearchParams({
+      origin,
+      pax: String(pax),
+      year: String(y),
+      month: String(m),
+    });
+    const res = await fetch(`/api/calendar-prices?${qs.toString()}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`calendar ${y}-${m}: ${res.status}`);
+    return (await res.json()) as CalendarPayload;
+  }
+
+  useEffect(() => {
+    let alive = true;
     (async () => {
       try {
-        const url = `/api/calendar-prices?origin=${encodeURIComponent(
-          origin
-        )}&pax=${pax}&year=${leftYear}&month=${leftMonth}`;
-        const r = await fetch(url, { cache: "no-store" });
-        const j = await r.json();
-        if (!cancelled) setPayloadLeft(j as MonthPayload);
-      } catch {
-        if (!cancelled) setPayloadLeft(null);
+        const [L, R] = await Promise.all([
+          fetchMonth(leftYear, leftMonth),
+          fetchMonth(rightYear, rightMonth),
+        ]);
+        if (!alive) return;
+        setPayloadLeft(L);
+        setPayloadRight(R);
+      } catch (e) {
+        console.error("calendar error", e);
+        if (!alive) return;
+        setPayloadLeft(null);
+        setPayloadRight(null);
       }
     })();
     return () => {
-      cancelled = true;
+      alive = false;
     };
-  }, [origin, pax, leftYear, leftMonth]);
+  }, [origin, pax, leftYear, leftMonth, rightYear, rightMonth]);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const url = `/api/calendar-prices?origin=${encodeURIComponent(
-          origin
-        )}&pax=${pax}&year=${rightYear}&month=${rightMonth}`;
-        const r = await fetch(url, { cache: "no-store" });
-        const j = await r.json();
-        if (!cancelled) setPayloadRight(j as MonthPayload);
-      } catch {
-        if (!cancelled) setPayloadRight(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [origin, pax, rightYear, rightMonth]);
-
-  const dep = selectedStart ? selectedStart : "";
-  const ret = selectedStart ? toYMD(parseYMD(selectedStart).add(TRIP_LEN - 1, "day")) : "";
-
-  const next = () => {
-    setCursor((c) => c.add(1, "month").startOf("month"));
-    setSelectedStart(null);
-  };
-  const prev = () => {
-    setCursor((c) => c.subtract(1, "month").startOf("month"));
-    setSelectedStart(null);
-  };
-
-  const canConfirm = !!selectedStart;
+  const prev = () => setCursor((c) => c.subtract(1, "month"));
+  const next = () => setCursor((c) => c.add(1, "month"));
 
   return (
     <div>
-      {/* Botonera superior con flechas */}
       <div className="flex items-center justify-between mb-4">
         <button className="btn btn-secondary" onClick={prev} aria-label="Mes anterior">
           ‹
         </button>
-        <div className="text-sm font-semibold opacity-80" />
+        <div className="text-sm font-semibold opacity-0">.</div>
         <button className="btn btn-secondary" onClick={next} aria-label="Mes siguiente">
           ›
         </button>
       </div>
 
-      {/* Móvil: 1 mes. Desktop: 2 meses con separación */}
+      {/* Móvil: 1 mes. Desktop: 2 meses con separación amplia */}
       <div className="flex flex-col md:flex-row md:gap-10">
         <MonthGrid
           title={cursor.format("MMMM YYYY")}
           baseYear={leftYear}
           baseMonth={leftMonth}
           payload={payloadLeft}
-          selectedStart={selectedStart}
-          tripLen={TRIP_LEN}
-          onPickStart={setSelectedStart}
+          selectedStart={selected?.dep}
         />
         <div className="hidden md:flex md:flex-1">
           <MonthGrid
@@ -281,34 +247,12 @@ export default function Calendar({
             baseYear={rightYear}
             baseMonth={rightMonth}
             payload={payloadRight}
-            selectedStart={selectedStart}
-            tripLen={TRIP_LEN}
-            onPickStart={setSelectedStart}
+            selectedStart={selected?.dep}
           />
         </div>
       </div>
-
-      {/* Fila inferior SIEMPRE en una sola línea: texto a la izquierda, botón a la derecha */}
-      <div className="flex items-center justify-between gap-3 mt-4">
-        <div className="text-sm min-h-[20px]">
-          {selectedStart ? (
-            <>
-              Salida: <strong>{formatDateES(dep)}</strong> · Vuelta:{" "}
-              <strong>{formatDateES(ret)}</strong>{" "}
-              <span className="opacity-70">(viaje de {TRIP_LEN} días)</span>
-            </>
-          ) : (
-            <span className="opacity-70">Selecciona el día de salida</span>
-          )}
-        </div>
-        <button
-          className="btn btn-primary"
-          disabled={!canConfirm}
-          onClick={() => onConfirm({ dep, ret })}
-        >
-          Siguiente
-        </button>
-      </div>
+      {/* IMPORTANTE: ya NO mostramos texto “Salida… Vuelta…”. 
+          El botón Siguiente/Atrás lo pone Widget, así quedan alineados en la misma fila. */}
     </div>
   );
 }
