@@ -88,10 +88,9 @@ function MonthGrid({
 
       <div className="grid grid-cols-7 gap-2">
         {cells.map((c, idx) => {
-          if (!c.iso || !c.day) {
-            return <div key={idx} className="h-12" />;
-          }
-
+if (!c.iso || !c.day) {
+  return <div key={idx} className="h-12" />;
+}
           const isStart = same(c.iso, startISO || undefined);
           const partOfTrip =
             startISO && endISO ? inRange(c.iso, startISO, endISO) : false;
@@ -123,18 +122,14 @@ function MonthGrid({
               type="button"
               className={`rounded-lg ${bg} ${text} p-2 h-16 flex flex-col items-center justify-center`}
               onClick={() => {
-                // El propio padre es quien guarda la selección,
-                // aquí no hacemos nada más que enviar el rango.
-                // Si el día no es seleccionable, no hacemos nada.
-                if (!c.info?.show) return;
-                const dep = c.iso;
-                const ret = addDaysISO(dep, TRIP_LEN - 1);
-                // Notificamos selección provisional:
-                const ev = new CustomEvent("calendar:select", {
-                  detail: { dep, ret },
-                });
-                window.dispatchEvent(ev as any);
-              }}
+  if (!c.info?.show) return;
+
+  const dep = c.iso!;                           // <-- afirmamos que existe
+  const ret = addDaysISO(dep, TRIP_LEN - 1);    // <-- ahora es string, no union
+
+  const ev = new CustomEvent("calendar:select", { detail: { dep, ret } });
+  window.dispatchEvent(ev as any);
+}}
             >
               <div className="text-sm font-medium">{c.day}</div>
               {/* Precio debajo, centrado; si el día está dentro del rango, escondemos precio, salvo el día inicio */}
