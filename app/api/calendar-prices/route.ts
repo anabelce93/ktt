@@ -23,19 +23,22 @@ export async function GET(req: Request) {
 
   const grid = buildCalendarGrid(year, month);
   const days: CalendarDay[] = [];
+  let firstDiag: any = undefined;
 
   for (const cell of grid.filter(c => c.inMonth)) {
     const dep = cell.dateISO;
     const ret = addDaysISO(dep, TRIP_LEN - 1);
-    const pp = await cheapestFor({ origin, dep, ret, pax } as RoundTripSearch);
+    const { price, diag } = await cheapestFor({ origin, dep, ret, pax } as RoundTripSearch);
+    if (!firstDiag && diag) firstDiag = diag; // guarda la primera diag para inspección
     days.push({
       date: dep,
-      show: pp !== null,
-      priceFrom: pp,
+      show: price !== null,
+      priceFrom: price,
       baseFare: BASE_FARE,
     });
   }
 
-  const payload: CalendarPayload = { origin, pax, year, month, days };
+  const payload: CalendarPayload & { diag?: any } = { origin, pax, year, month, days };
+  if (firstDiag) payload.diag = firstDiag;
   return NextResponse.json(payload);
 }
