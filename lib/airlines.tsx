@@ -19,7 +19,7 @@ const AIRLINES: Record<string, string> = {
   JL: "Japan Airlines",
   NH: "ANA (All Nippon Airways)",
   SQ: "Singapore Airlines",
-  TG: "Thai Airways",
+  TW: "T'Way",
   CA: "Air China",
   MU: "China Eastern",
   CZ: "China Southern",
