@@ -1,260 +1,170 @@
 // lib/duffel.ts
-// Implementación centralizada de llamadas a Duffel y mapeo a objetos "FlightOption"
-
-type SegmentInfo = {
+type DuffelSlice = {
   origin: string;
   destination: string;
-  departure: string; // ISO
-  arrival: string;   // ISO
-  duration_minutes: number;
-  marketing_carrier: string; // IATA
+  departing_at: string;
+  arriving_at: string;
+  marketing_carrier?: string;
+  duration_minutes?: number;
+};
+
+type DuffelOffer = {
+  id: string;
+  slices: DuffelSlice[][]; // [outSegments[], retSegments[]]
+  total_amount: string;    // total para todos los pax
+  currency: string;
+  baggage_included?: boolean;
+  cabin?: string;
+  airline_codes?: string[];
+};
+
+export type SegmentInfo = {
+  origin: string;
+  destination: string;
+  departure: string;
+  arrival: string;
+  duration_minutes?: number;
+  marketing_carrier?: string;
 };
 
 export type FlightOption = {
   id: string;
-  out: SegmentInfo[]; // ida
-  ret: SegmentInfo[]; // vuelta
+  out: SegmentInfo[];
+  ret: SegmentInfo[];
   baggage_included: boolean;
-  cabin: "Economy";
-  total_amount_per_person: number; // número, por persona
+  cabin: string;
+  total_amount_per_person: number;
+  airline_codes?: string[];
 };
 
-const DUFFEL_URL = "https://api.duffel.com/air/offer_requests";
-const DUFFEL_KEY = process.env.DUFFEL_TOKEN!;
-const DUFFEL_VERSION = process.env.DUFFEL_VERSION || "2024-05-20"; // asegúrate de tener esto en Vercel
-
-function ensureEnv() {
-  if (!DUFFEL_KEY) throw new Error("Missing DUFFEL_TOKEN env var");
-}
-
-async function duffelFetch(url: string, init: RequestInit) {
-  ensureEnv();
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      "Authorization": `Bearer ${DUFFEL_KEY}`,
-      "Duffel-Version": DUFFEL_VERSION,
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      ...(init.headers || {}),
-    },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Duffel ${res.status}: ${text || res.statusText}`);
-  }
-  return res.json();
-}
-
-/** Utilidades */
-
-function minutesBetween(isoStart: string, isoEnd: string): number {
-  const a = new Date(isoStart).getTime();
-  const b = new Date(isoEnd).getTime();
-  return Math.max(0, Math.round((b - a) / 60000));
-}
-
-function sliceDurationMinutes(segs: { departing_at: string; arriving_at: string }[]): number {
-  if (!segs.length) return 0;
-  const start = segs[0].departing_at;
-  const end = segs[segs.length - 1].arriving_at;
-  return minutesBetween(start, end);
-}
-
-function baggageIncludedFromOffer(offer: any): boolean {
-  // Intentar detectar “1x checked bag” de forma conservadora
-  const included = offer?.slices?.flatMap((s: any) => s?.segments || []) || [];
-  const bag = included.some((seg: any) =>
-    seg?.passengers?.some((p: any) =>
-      (p?.baggages || []).some((b: any) => (b?.type || "").includes("checked"))
-    )
-  );
-  return !!bag;
-}
-
-function toSegmentInfo(seg: any): SegmentInfo {
-  const dep = seg?.departing_at || seg?.departure_time || seg?.origin_terminal_time;
-  const arr = seg?.arriving_at || seg?.arrival_time || seg?.destination_terminal_time;
-  const origin = seg?.origin?.iata_code || seg?.origin;
-  const destination = seg?.destination?.iata_code || seg?.destination;
-  const marketing = seg?.marketing_carrier?.iata_code || seg?.marketing_carrier;
-  const dur = minutesBetween(dep, arr);
-  return {
-    origin,
-    destination,
-    departure: dep,
-    arrival: arr,
-    duration_minutes: dur,
-    marketing_carrier: marketing,
-  };
-}
-
-function mapDuffelOfferToOption(offer: any): FlightOption {
-  const slices = offer?.slices || [];
-  const outSegments = (slices[0]?.segments || []).map(toSegmentInfo);
-  const retSegments = (slices[1]?.segments || []).map(toSegmentInfo);
-
-  const totalStr = offer?.total_amount || "0";
-  const currency = offer?.total_currency || "EUR";
-  // Dividimos por pax más abajo (oferta es para TODOS los pasajeros)
-  // Aquí guardamos total por persona: luego lo ajustamos en los helpers.
-  const totalNumber = Number(totalStr);
-
-  return {
-    id: String(offer?.id || cryptoRandomId()),
-    out: outSegments,
-    ret: retSegments,
-    baggage_included: baggageIncludedFromOffer(offer),
-    cabin: "Economy",
-    total_amount_per_person: Number.isFinite(totalNumber) ? totalNumber : 0,
-  };
-}
-
-function cryptoRandomId() {
-  // fallback leve para id
-  return "tmp_" + Math.random().toString(36).slice(2);
-}
-
-/** Lógica de búsqueda */
-
-// Busca ida+vuelta, probando ICN y GMP, limita conexiones y devuelve ordenado por precio (por persona).
-export async function searchRoundTripBoth({
-  origin,
-  dep,
-  ret,
-  pax,
-  limit = 20,
-}: {
+type SearchArgs = {
   origin: string;
-  dep: string;
-  ret: string;
+  dep: string; // YYYY-MM-DD
+  ret: string; // YYYY-MM-DD
   pax: number;
   limit?: number;
-}): Promise<{ options: FlightOption[]; diag: any[] }> {
-  const dests = ["ICN", "GMP"];
-  const diag: any[] = [];
-  const list: FlightOption[] = [];
+  debug?: boolean;
+};
 
-  for (const dest of dests) {
-    try {
-      const body = {
-        data: {
-          slices: [
-            { origin, destination: dest, departure_date: dep },
-            { origin: dest, destination: origin, departure_date: ret },
-          ],
-          passengers: Array.from({ length: pax }).map((_, i) => ({
-            type: "adult",
-            id: `pax_${i + 1}`,
-          })),
-          cabin_class: "economy",
-          max_connections: 1,
-          max_stops: 1,
-        },
-      };
-
-      const created = await duffelFetch(DUFFEL_URL, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      const reqId = created?.data?.id;
-      if (!reqId) continue;
-
-      const offers = await duffelFetch(
-        `${DUFFEL_URL}/${reqId}/offers?limit=${limit}`,
-        { method: "GET" }
-      );
-
-      const mapped: FlightOption[] = (offers?.data || []).map(mapDuffelOfferToOption);
-
-      // Ajuste: Duffel.total_amount es TOTAL para todos los pax. Convertimos a “por persona”.
-      const perPerson = mapped.map((m) => ({
-        ...m,
-        total_amount_per_person: Math.round((m.total_amount_per_person / Math.max(pax, 1)) * 100) / 100,
-      }));
-
-      list.push(...perPerson);
-    } catch (e: any) {
-      diag.push({ dest, error: e?.message || String(e) });
-    }
-  }
-
-  // Orden por precio/persona asc
-  list.sort(
-    (a, b) =>
-      (a.total_amount_per_person ?? 0) - (b.total_amount_per_person ?? 0)
-  );
-
-  // Deduplicado por id (por si ICN/GMP devuelve clones)
-  const seen = new Set<string>();
-  const unique = list.filter((o) => (seen.has(o.id) ? false : (seen.add(o.id), true)));
-
-  return { options: unique.slice(0, limit), diag };
+function diffMinutes(a: string, b: string) {
+  return Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000));
 }
 
-/**
- * searchOffers
- * Helper simple para “calendario”: para una fecha concreta y 1 destino,
- * devuelve *al menos* la oferta más barata (por persona) o vacío.
- * Puedes llamarlo varias veces por día/mes/destino desde /api/calendar-prices.
- */
-export async function searchOffers({
-  origin,
-  destination,
-  dep,
-  ret,
-  pax,
-  limit = 5,
-}: {
+function mapOfferToOption(of: DuffelOffer, pax: number): FlightOption | null {
+  if (!of.slices || of.slices.length < 2) return null;
+  const [outSegs, retSegs] = of.slices;
+
+  const mapSeg = (s: DuffelSlice): SegmentInfo => ({
+    origin: s.origin,
+    destination: s.destination,
+    departure: s.departing_at,
+    arrival: s.arriving_at,
+    duration_minutes: s.duration_minutes,
+    marketing_carrier: s.marketing_carrier,
+  });
+
+  const out = outSegs.map(mapSeg);
+  const ret = retSegs.map(mapSeg);
+
+  const total = Number(of.total_amount || 0);
+  const perPerson = pax > 0 ? Math.round(total / pax) : total;
+
+  return {
+    id: of.id,
+    out,
+    ret,
+    baggage_included: !!of.baggage_included,
+    cabin: of.cabin || "Economy",
+    total_amount_per_person: perPerson,
+    airline_codes: of.airline_codes || [],
+  };
+}
+
+// Comprueba que cada escala (entre tramos contiguos) ≤ maxLayoverMin
+function checkLayoversMax(segments: SegmentInfo[], maxLayoverMin: number) {
+  if (segments.length <= 1) return true;
+  for (let i = 1; i < segments.length; i++) {
+    const prev = segments[i - 1];
+    const curr = segments[i];
+    const lay = diffMinutes(prev.arrival, curr.departure);
+    if (lay > maxLayoverMin) return false;
+  }
+  return true;
+}
+
+// Este método debe usar tu cliente real de Duffel para buscar ofertas.
+// Aquí asumo que tienes algo como `searchOffersRaw({ origin, destination, dep, ret, pax, limit })` que devuelve DuffelOffer[].
+// Si tu función se llama distinto, cambia el nombre aquí.
+async function searchOffersRaw(args: {
   origin: string;
   destination: string;
   dep: string;
   ret: string;
   pax: number;
   limit?: number;
-}): Promise<FlightOption[]> {
-  const body = {
-    data: {
-      slices: [
-        { origin, destination, departure_date: dep },
-        { origin: destination, destination: origin, departure_date: ret },
-      ],
-      passengers: Array.from({ length: pax }).map((_, i) => ({
-        type: "adult",
-        id: `pax_${i + 1}`,
-      })),
-      cabin_class: "economy",
-      max_connections: 1,
-      max_stops: 1,
-    },
+}): Promise<DuffelOffer[]> {
+  // TODO: llama a tu integración real con Duffel.
+  // Devuelve un array de ofertas crudas (sin filtrar).
+  throw new Error("searchOffersRaw not implemented");
+}
+
+export async function searchRoundTripBoth(
+  { origin, dep, ret, pax, limit = 20, debug = false }: SearchArgs
+): Promise<{ options: FlightOption[]; diag: any }> {
+  const DESTS = ["ICN", "GMP"] as const;
+
+  const diag: any = {
+    input: { origin, dep, ret, pax, limit },
+    perDest: [] as any[],
+    merged_count: 0,
+    after_filters: 0,
   };
 
-  const created = await duffelFetch(DUFFEL_URL, {
-    method: "POST",
-    body: JSON.stringify(body),
+  const all: DuffelOffer[] = [];
+
+  // 1) Pedimos a ICN y a GMP por separado y juntamos
+  for (const destination of DESTS) {
+    try {
+      const offers = await searchOffersRaw({ origin, destination, dep, ret, pax, limit });
+      diag.perDest.push({ destination, offers: offers.length });
+      all.push(...offers);
+    } catch (e: any) {
+      diag.perDest.push({ destination, error: String(e?.message || e) });
+    }
+  }
+
+  diag.merged_count = all.length;
+
+  // 2) Mapeamos a nuestra Option
+  const mapped = all
+    .map((of) => mapOfferToOption(of, pax))
+    .filter((x): x is FlightOption => !!x);
+
+  // 3) Filtros razonables:
+  //    - máx 1 escala por trayecto
+  //    - cada escala ≤ 12h (720 min)
+  //    - (OPCIONAL) maleta incluida – desactivado por ahora para no matar resultados
+  const MAX_LAYOVER_MIN = 12 * 60;
+
+  const filtered = mapped.filter((opt) => {
+    const outStops = Math.max(0, opt.out.length - 1);
+    const retStops = Math.max(0, opt.ret.length - 1);
+    if (outStops > 1 || retStops > 1) return false;
+
+    if (!checkLayoversMax(opt.out, MAX_LAYOVER_MIN)) return false;
+    if (!checkLayoversMax(opt.ret, MAX_LAYOVER_MIN)) return false;
+
+    // Si quieres exigir maleta incluida, descomenta:
+    // if (!opt.baggage_included) return false;
+
+    return true;
   });
-  const reqId = created?.data?.id;
-  if (!reqId) return [];
 
-  const offers = await duffelFetch(`${DUFFEL_URL}/${reqId}/offers?limit=${limit}`, {
-    method: "GET",
-  });
+  diag.after_filters = filtered.length;
 
-  const mapped: FlightOption[] = (offers?.data || []).map(mapDuffelOfferToOption);
+  // 4) Ordenamos por precio por persona y truncamos
+  filtered.sort((a, b) => a.total_amount_per_person - b.total_amount_per_person);
+  const options = filtered.slice(0, limit);
 
-  // Igual que antes: total_amount es total del grupo → lo pasamos a “por persona”
-  const perPerson = mapped.map((m) => ({
-    ...m,
-    total_amount_per_person: Math.round((m.total_amount_per_person / Math.max(pax, 1)) * 100) / 100,
-  }));
-
-  // Orden ascendente por precio/persona
-  perPerson.sort(
-    (a, b) =>
-      (a.total_amount_per_person ?? 0) - (b.total_amount_per_person ?? 0)
-  );
-
-  return perPerson;
+  return { options, diag: debug ? diag : undefined };
 }
