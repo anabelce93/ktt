@@ -1,4 +1,3 @@
-// app/api/calendar-prices/route.ts
 import { NextResponse } from "next/server";
 import { buildCalendarGrid, addDaysISO } from "@/lib/calendar";
 import { cheapestFor } from "@/lib/duffel";
