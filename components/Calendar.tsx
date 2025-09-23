@@ -157,20 +157,27 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
     return () => window.removeEventListener("calendar:select", onPick as any);
   }, [onSelect]);
 
-  async function fetchMonth(y: number, m: number) {
-    const qs = new URLSearchParams({
-      origin,
-      pax: String(pax),
-      year: String(y),
-      month: String(m),
-      forceRefresh: "1",
-    });
-    const res = await fetch(`/api/calendar-prices?${qs.toString()}`, {
-      cache: "no-store",
-    });
-    if (!res.ok) throw new Error(`calendar ${y}-${m}: ${res.status}`);
-    return (await res.json()) as CalendarPayload;
-  }
+async function fetchMonth(y: number, m: number) {
+  console.log("📦 Fetching:", y, m);
+
+  const qs = new URLSearchParams({
+    origin,
+    pax: String(pax),
+    year: String(y),
+    month: String(m),
+    forceRefresh: "1",
+  });
+  const res = await fetch(`/api/calendar-prices?${qs.toString()}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`calendar ${y}-${m}: ${res.status}`);
+
+  const result = await res.json();
+  console.log("✅ Recibido:", result.days);
+
+  return result as CalendarPayload;
+}
+
 
   useEffect(() => {
     let alive = true;
