@@ -17,6 +17,13 @@ export type CalendarPayload = {
   days: CalendarDay[];
 };
 
+export type DayPayload = {
+  date: string;
+  show: boolean;
+  priceFrom: number | null;
+  baseFare: number;
+};
+
 // --- Vuelos ---
 export type SegmentInfo = {
   origin: string;
