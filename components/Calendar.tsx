@@ -1,34 +1,31 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import "dayjs/locale/es";
 dayjs.locale("es");
 
 type DayPayload = {
-  date: string;       // YYYY-MM-DD
-  show: boolean;      // disponible
-  priceFrom: number | null; // precio base+vuelo por persona (entero) o null
+  date: string;
+  show: boolean;
+  priceFrom: number | null;
 };
+
 type CalendarPayload = {
   origin: string;
   pax: number;
   year: number;
-  month: number; // 0-based para JS, pero en API usamos 0=enero? (nuestro endpoint ya convierte)
+  month: number;
   days: DayPayload[];
 };
 
 type Props = {
   origin: string;
   pax: number;
-  onSelect: (range: { dep: string; ret: string } | null) => void; // avisamos al padre
+  onSelect: (range: { dep: string; ret: string } | null) => void;
 };
 
-const TRIP_LEN = 10; // 10 días totales -> vuelta 9 días después
-
-function isoYMD(d: dayjs.Dayjs) {
-  return d.format("YYYY-MM-DD");
-}
+const TRIP_LEN = 10;
 
 function addDaysISO(iso: string, n: number) {
   return dayjs(iso).add(n, "day").format("YYYY-MM-DD");
@@ -47,7 +44,7 @@ function inRange(iso: string, start?: string, end?: string) {
 function MonthGrid({
   title,
   baseYear,
-  baseMonth, // 0..11
+  baseMonth,
   payload,
   selectedStart,
 }: {
@@ -58,7 +55,7 @@ function MonthGrid({
   selectedStart?: string | null;
 }) {
   const firstDay = dayjs(new Date(baseYear, baseMonth, 1));
-  const startWeekDay = firstDay.day(); // 0 dom..6 sab
+  const startWeekDay = firstDay.day();
   const daysInMonth = firstDay.daysInMonth();
 
   const startISO = selectedStart || null;
@@ -74,10 +71,7 @@ function MonthGrid({
 
   return (
     <div className="flex-1">
-      <div className="text-center font-semibold mb-2 capitalize">
-        {title}
-      </div>
-
+      <div className="text-center font-semibold mb-2 capitalize">{title}</div>
       <div className="grid grid-cols-7 text-xs opacity-70 mb-1">
         {["L", "M", "X", "J", "V", "S", "D"].map((d) => (
           <div key={d} className="text-center py-1">
@@ -85,21 +79,13 @@ function MonthGrid({
           </div>
         ))}
       </div>
-
       <div className="grid grid-cols-7 gap-2">
         {cells.map((c, idx) => {
-if (!c.iso || !c.day) {
-  return <div key={idx} className="h-12" />;
-}
+          if (!c.iso || !c.day) return <div key={idx} className="h-12" />;
           const isStart = same(c.iso, startISO || undefined);
           const partOfTrip =
             startISO && endISO ? inRange(c.iso, startISO, endISO) : false;
 
-          // colores:
-          // - día seleccionado (inicio): 91c5c5
-          // - rango del viaje: 91c5c5 más suave
-          // - disponible <1990€: verde claro (#CDECCE aprox), texto negro
-          // - disponible >=1990€: amarillo pálido (#FFF6CC aprox), texto negro
           let bg = "";
           let text = "text-black";
           if (isStart) {
@@ -107,32 +93,26 @@ if (!c.iso || !c.day) {
           } else if (partOfTrip) {
             bg = "bg-[#91c5c5]/30";
           } else if (c.info?.show && typeof c.info.priceFrom === "number") {
-            if ((c.info.priceFrom as number) < 1990) bg = "bg-[#cdecce]";
-            else bg = "bg-[#fff6cc]";
+            bg = c.info.priceFrom < 1990 ? "bg-[#cdecce]" : "bg-[#fff6cc]";
           } else {
             bg = "bg-transparent";
             text = "text-gray-400";
           }
 
-          // Hacemos click en el día solo si es seleccionable (show=true).
-          // La “confirmación” real la hará el usuario con el botón Siguiente en el padre.
           return (
             <button
               key={idx}
               type="button"
               className={`rounded-lg ${bg} ${text} p-2 h-16 flex flex-col items-center justify-center`}
               onClick={() => {
-  if (!c.info?.show) return;
-
-  const dep = c.iso!;                           // <-- afirmamos que existe
-  const ret = addDaysISO(dep, TRIP_LEN - 1);    // <-- ahora es string, no union
-
-  const ev = new CustomEvent("calendar:select", { detail: { dep, ret } });
-  window.dispatchEvent(ev as any);
-}}
+                if (!c.info?.show) return;
+                const dep = c.iso!;
+                const ret = addDaysISO(dep, TRIP_LEN - 1);
+                const ev = new CustomEvent("calendar:select", { detail: { dep, ret } });
+                window.dispatchEvent(ev as any);
+              }}
             >
               <div className="text-sm font-medium">{c.day}</div>
-              {/* Precio debajo, centrado; si el día está dentro del rango, escondemos precio, salvo el día inicio */}
               {!partOfTrip || isStart ? (
                 <div className="text-[11px] mt-1">
                   {typeof c.info?.priceFrom === "number"
@@ -151,12 +131,10 @@ if (!c.iso || !c.day) {
 }
 
 export default function Calendar({ origin, pax, onSelect }: Props) {
-  const [cursor, setCursor] = useState(dayjs().add(1, "month").startOf("month")); // mes siguiente
+  const [cursor, setCursor] = useState(dayjs().add(1, "month").startOf("month"));
   const [payloadLeft, setPayloadLeft] = useState<CalendarPayload | null>(null);
   const [payloadRight, setPayloadRight] = useState<CalendarPayload | null>(null);
-  const [selected, setSelected] = useState<{ dep: string; ret: string } | null>(
-    null
-  );
+  const [selected, setSelected] = useState<{ dep: string; ret: string } | null>(null);
 
   const leftYear = cursor.year();
   const leftMonth = cursor.month();
@@ -164,23 +142,25 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
   const rightYear = right.year();
   const rightMonth = right.month();
 
-  // escucha selección provisional desde los días
+  const minMonth = dayjs().add(1, "month").startOf("month");
+  const isAtMinMonth = cursor.isSame(minMonth, "month");
+
   useEffect(() => {
     const onPick = (e: any) => {
       setSelected(e.detail);
-      onSelect(e.detail); // avisamos al padre para habilitar “Siguiente”
+      onSelect(e.detail);
     };
     window.addEventListener("calendar:select", onPick as any);
     return () => window.removeEventListener("calendar:select", onPick as any);
   }, [onSelect]);
 
-  // carga datos 2 meses
   async function fetchMonth(y: number, m: number) {
     const qs = new URLSearchParams({
       origin,
       pax: String(pax),
       year: String(y),
       month: String(m),
+      forceRefresh: "1",
     });
     const res = await fetch(`/api/calendar-prices?${qs.toString()}`, {
       cache: "no-store",
@@ -218,7 +198,12 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <button className="btn btn-secondary" onClick={prev} aria-label="Mes anterior">
+        <button
+          className="btn btn-secondary"
+          onClick={prev}
+          disabled={isAtMinMonth}
+          aria-label="Mes anterior"
+        >
           ‹
         </button>
         <div className="text-sm font-semibold opacity-0">.</div>
@@ -227,7 +212,6 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
         </button>
       </div>
 
-      {/* Móvil: 1 mes. Desktop: 2 meses con separación amplia */}
       <div className="flex flex-col md:flex-row md:gap-10">
         <MonthGrid
           title={cursor.format("MMMM YYYY")}
@@ -246,8 +230,6 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
           />
         </div>
       </div>
-      {/* IMPORTANTE: ya NO mostramos texto “Salida… Vuelta…”. 
-          El botón Siguiente/Atrás lo pone Widget, así quedan alineados en la misma fila. */}
     </div>
   );
 }
