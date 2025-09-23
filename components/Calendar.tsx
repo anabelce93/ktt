@@ -120,6 +120,7 @@ Promise.all([
             ‹
           </button>
         )}
+        <div className="flex justify-between mt-2">
         {!isAtMaxMonth && (
           <button
             className="btn btn-secondary"
