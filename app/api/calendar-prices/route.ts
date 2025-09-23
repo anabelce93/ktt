@@ -1,5 +1,3 @@
-// /app/api/calendar-prices/route.ts
-
 import { NextResponse } from "next/server";
 import { buildCalendarGrid, addDaysISO } from "@/lib/calendar";
 import { TRIP_LEN, CalendarDay, CalendarPayload, RoundTripSearch } from "@/lib/types";
@@ -24,11 +22,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "year y month requeridos" }, { status: 400 });
   }
 
-  const grid = buildCalendarGrid(year, month + 1); // ✅ CORREGIDO: convertir a 1–12
+  // ✅ CORREGIDO: convertir mes a 1–12 para buildCalendarGrid
+  const grid = buildCalendarGrid(year, month + 1);
   const inMonthCells = grid.filter(c => c.inMonth);
   const days: CalendarDay[] = new Array(inMonthCells.length);
   let firstDiag: any = undefined;
 
+  // ✅ LOG GENERAL DEL MES
   console.log("📦 Mes procesado:", year, month + 1, "→ días:", inMonthCells.length);
 
   await Promise.all(
@@ -47,6 +47,7 @@ export async function GET(req: Request) {
 
         const cheapest = options[0]?.total_amount_per_person ?? null;
 
+        // ✅ LOG POR DÍA
         console.log("🔍 Día:", dep, "→ opciones:", options.length, "precio:", cheapest);
 
         if (!firstDiag && diag) firstDiag = diag;
