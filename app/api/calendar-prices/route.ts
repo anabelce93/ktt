@@ -79,6 +79,8 @@ export async function GET(req: Request) {
   };
 
   if (debug && firstDiag) payload.diag = firstDiag;
-
+  
+console.log("✅ Payload final:", JSON.stringify(payload, null, 2));
+  
   return NextResponse.json(payload);
 }
