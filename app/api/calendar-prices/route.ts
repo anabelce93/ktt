@@ -22,7 +22,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "year y month requeridos" }, { status: 400 });
   }
 
-  const grid = buildCalendarGrid(year, month);
+  const grid = buildCalendarGrid(year, month +1);
   const inMonthCells = grid.filter(c => c.inMonth);
   const days: CalendarDay[] = new Array(inMonthCells.length);
   let firstDiag: any = undefined;
