@@ -198,14 +198,15 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <button
-          className="btn btn-secondary"
-          onClick={prev}
-          disabled={isAtMinMonth}
-          aria-label="Mes anterior"
-        >
-          ‹
-        </button>
+        {!isAtMinMonth && (
+          <button
+            className="btn btn-secondary"
+            onClick={prev}
+            aria-label="Mes anterior"
+          >
+            ‹
+          </button>
+        )}
         <div className="text-sm font-semibold opacity-0">.</div>
         <button className="btn btn-secondary" onClick={next} aria-label="Mes siguiente">
           ›
