@@ -56,7 +56,7 @@ function nextMonths(count: number): { year: number; month: number }[] {
 }
 
 export async function GET(req: NextRequest) {
-  const url = req.nextUrl; // base para construir enlaces internos
+  const url = req.nextUrl;
   const base = `${url.origin}/api/calendar-prices`;
 
   const origins = (url.searchParams.get("origins") || "BCN,MAD,VLC,AGP,LPA")
@@ -64,33 +64,29 @@ export async function GET(req: NextRequest) {
     .map((s) => s.trim().toUpperCase())
     .filter(Boolean);
 
-  const paxList = parsePax(url.searchParams.get("pax"));              // ej: "1-6" o "1,2,3"
-  const monthsExplicit = parseMonthsExplicit(url.searchParams.get("months")); // ej: "9,10,11" (0-based)
-  const monthsAhead = parseInt(url.searchParams.get("months_ahead") || "3", 10); // ej: 3 = próximos 3 meses (desde el siguiente)
+  const paxList = parsePax(url.searchParams.get("pax"));
+  const monthsExplicit = parseMonthsExplicit(url.searchParams.get("months"));
+  const monthsAhead = parseInt(url.searchParams.get("months_ahead") || "3", 10);
   const yearOverride = url.searchParams.get("year");
 
-  // Calculamos los (año, mes) a precalentar
   let targets: { year: number; month: number }[] = [];
   if (monthsExplicit && yearOverride) {
     const y = parseInt(yearOverride, 10);
     targets = monthsExplicit.map((m) => ({ year: y, month: m }));
   } else if (monthsExplicit && !yearOverride) {
-    // Si pasan meses explícitos sin año, asumimos año del próximo mes en adelante
     const nm = nextMonths(12);
     targets = nm.filter((t) => monthsExplicit.includes(t.month)).slice(0, monthsExplicit.length);
   } else {
     targets = nextMonths(Math.max(1, monthsAhead));
   }
 
-  // Concurrencia baja para no sobrecargar (cada calendar-prices ya hace sus sub-llamadas)
   const limit = pLimit(2);
-
   const jobs: Array<Promise<{ ok: boolean; url: string; ms: number; status?: number }>> = [];
 
   for (const origin of origins) {
     for (const pax of paxList) {
       for (const t of targets) {
-        const targetUrl = `${base}?origin=${origin}&pax=${pax}&year=${t.year}&month=${t.month}&nocache=1`;
+        const targetUrl = `${base}?origin=${origin}&pax=${pax}&year=${t.year}&month=${t.month}`;
         jobs.push(
           limit(async () => {
             const t0 = Date.now();
@@ -122,4 +118,3 @@ export async function GET(req: NextRequest) {
     results,
   });
 }
-
