@@ -81,8 +81,7 @@ function MonthGrid({
         {cells.map((c, idx) => {
           if (!c.iso || !c.day) return <div key={idx} className="h-12" />;
 
-          // 🔍 Log de depuración
-          console.log("Día:", c.iso, "Mostrar:", c.info?.show, "Precio:", c.info?.priceFrom);
+          console.log("📅 Día:", c.iso, "Mostrar:", c.info?.show, "Precio:", c.info?.priceFrom);
 
           const isStart = same(c.iso, startISO || undefined);
           const partOfTrip = startISO && endISO ? inRange(c.iso, startISO, endISO) : false;
@@ -132,7 +131,7 @@ function MonthGrid({
 }
 
 export default function Calendar({ origin, pax, onSelect }: Props) {
-  const [cursor, setCursor] = useState(dayjs().add(1, "month").startOf("month"));
+  const [cursor, setCursor] = useState(() => dayjs().add(1, "month").startOf("month"));
   const [payloadLeft, setPayloadLeft] = useState<CalendarPayload | null>(null);
   const [payloadRight, setPayloadRight] = useState<CalendarPayload | null>(null);
   const [selected, setSelected] = useState<{ dep: string; ret: string } | null>(null);
@@ -157,27 +156,23 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
     return () => window.removeEventListener("calendar:select", onPick as any);
   }, [onSelect]);
 
-async function fetchMonth(y: number, m: number) {
-  console.log("📦 Fetching:", y, m);
-
-  const qs = new URLSearchParams({
-    origin,
-    pax: String(pax),
-    year: String(y),
-    month: String(m),
-    forceRefresh: "1",
-  });
-  const res = await fetch(`/api/calendar-prices?${qs.toString()}`, {
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`calendar ${y}-${m}: ${res.status}`);
-
-  const result = await res.json();
-  console.log("✅ Recibido:", result.days);
-
-  return result as CalendarPayload;
-}
-
+  async function fetchMonth(y: number, m: number) {
+    console.log("📦 Fetching:", y, m);
+    const qs = new URLSearchParams({
+      origin,
+      pax: String(pax),
+      year: String(y),
+      month: String(m),
+      forceRefresh: "1",
+    });
+    const res = await fetch(`/api/calendar-prices?${qs.toString()}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`calendar ${y}-${m}: ${res.status}`);
+    const result = await res.json();
+    console.log("✅ Recibido:", result.days);
+    return result as CalendarPayload;
+  }
 
   useEffect(() => {
     let alive = true;
@@ -229,7 +224,7 @@ async function fetchMonth(y: number, m: number) {
         )}
       </div>
 
-           <div className="flex flex-col md:flex-row md:gap-10">
+      <div className="flex flex-col md:flex-row md:gap-10">
         <MonthGrid
           title={cursor.format("MMMM YYYY")}
           baseYear={leftYear}
@@ -237,14 +232,6 @@ async function fetchMonth(y: number, m: number) {
           payload={payloadLeft}
           selectedStart={selected?.dep}
         />
-        <div className="hidden md:flex md:flex-1">
-          <MonthGrid
-            title={right.format("MMMM YYYY")}
-            baseYear={rightYear}
-            baseMonth={rightMonth}
-            payload={payloadRight}
-            selectedStart={selected?.dep}
-          />
         </div>
       </div>
     </div>
