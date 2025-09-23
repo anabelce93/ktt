@@ -17,6 +17,28 @@ type Props = {
   onCalendarPrice?: (price: number) => void;
 };
 
+function AirlineLoader() {
+  const logos = ["QR", "TK", "KE", "OZ", "AF", "KL", "LH", "IB", "UX", "BA"];
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((i) => (i + 1) % logos.length);
+    }, 500);
+    return () => clearInterval(timer);
+  }, []);
+
+  const code = logos[index];
+  const src = `/airlines/${code}.svg`;
+
+  return (
+    <div className="flex flex-col items-center py-6 text-sm text-gray-500">
+      <div className="mb-2">Buscando vuelos disponibles…</div>
+      <img src={src} alt={code} className="h-6 w-auto" />
+    </div>
+  );
+}
+
 export default function FlightsList({
   origin,
   departure,
@@ -63,7 +85,16 @@ export default function FlightsList({
     load();
   }, [origin, departure, ret, pax]);
 
-  if (loading) return <div className="text-sm text-gray-500">Cargando opciones…</div>;
+  if (loading) return <AirlineLoader />;
+
+  if (!loading && options.length === 0) {
+    return (
+      <div className="text-sm text-red-500">
+        No hay vuelos disponibles para esas fechas con los filtros actuales.
+        Prueba con otras fechas o ajusta los requisitos.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
