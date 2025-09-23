@@ -132,6 +132,7 @@ function MonthGrid({
 
 export default function Calendar({ origin, pax, onSelect }: Props) {
   const [cursor, setCursor] = useState(() => dayjs().add(1, "month").startOf("month"));
+  console.log("🧭 Cursor inicial:", cursor.format("YYYY-MM"));
   const [payloadLeft, setPayloadLeft] = useState<CalendarPayload | null>(null);
   const [payloadRight, setPayloadRight] = useState<CalendarPayload | null>(null);
   const [selected, setSelected] = useState<{ dep: string; ret: string } | null>(null);
@@ -141,6 +142,7 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
   const right = cursor.add(1, "month");
   const rightYear = right.year();
   const rightMonth = right.month();
+console.log("📦 Enviando a API:", leftYear, leftMonth, "y", rightYear, rightMonth);
 
   const minMonth = dayjs().add(1, "month").startOf("month");
   const maxMonth = dayjs().add(10, "month").startOf("month");
@@ -155,7 +157,7 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
     window.addEventListener("calendar:select", onPick as any);
     return () => window.removeEventListener("calendar:select", onPick as any);
   }, [onSelect]);
-
+  
   async function fetchMonth(y: number, m: number) {
     console.log("📦 Fetching:", y, m);
     const qs = new URLSearchParams({
