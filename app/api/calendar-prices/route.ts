@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { buildCalendarGrid, addDaysISO } from "@/lib/calendar";
 import { TRIP_LEN, CalendarDay, CalendarPayload, RoundTripSearch } from "@/lib/types";
 import { searchRoundTripBoth } from "@/lib/duffel";
+import { cacheGet, cacheSet } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
 const BASE_FARE = 1175;
+const TTL_SECONDS = 43200; // 12 horas
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -17,9 +19,16 @@ export async function GET(req: Request) {
   const year = Number(searchParams.get("year"));
   const month = Number(searchParams.get("month"));
   const debug = searchParams.get("debug") === "1";
+  const forceRefresh = searchParams.get("forceRefresh") === "1";
 
   if (!year || !month) {
     return NextResponse.json({ error: "year y month requeridos" }, { status: 400 });
+  }
+
+  const cacheKey = `calendar-${origin}-${year}-${month}-pax${pax}`;
+  if (!forceRefresh) {
+    const cached = await cacheGet<CalendarPayload>(cacheKey);
+    if (cached) return NextResponse.json(cached);
   }
 
   const grid = buildCalendarGrid(year, month);
@@ -33,9 +42,8 @@ export async function GET(req: Request) {
       const ret = addDaysISO(dep, TRIP_LEN - 1);
 
       try {
-        // pedimos solo 1 (más barato)
         const { options, diag } = await searchRoundTripBoth({ origin, dep, ret, pax, limit: 1 } as RoundTripSearch);
-        if (!firstDiag && diag) firstDiag = diag; // guarda el primer diag para mostrarlo
+        if (!firstDiag && diag) firstDiag = diag;
 
         const cheapest = options[0]?.total_amount_per_person ?? null;
         days[index] = {
@@ -57,5 +65,7 @@ export async function GET(req: Request) {
 
   const payload: CalendarPayload & { diag?: any } = { origin, pax, year, month, days };
   if (debug && firstDiag) payload.diag = firstDiag;
+
+  await cacheSet(cacheKey, payload, TTL_SECONDS);
   return NextResponse.json(payload);
 }
