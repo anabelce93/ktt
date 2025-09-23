@@ -227,8 +227,8 @@ function MonthGrid({
               <div className="text-sm font-medium">{c.day}</div>
               <div className="text-[11px] mt-1">
                 {typeof c.info?.priceFrom === "number"
-                  ? `${Math.round(c.info.priceFrom)}€`
-                  : "–"}
+  ? `${Math.round(c.info.priceFrom + c.info.baseFare)}€`
+  : "–"}
               </div>
             </button>
           );
