@@ -62,6 +62,9 @@ export default function Calendar({
       setLeft(L);
       setRight(R);
     });
+    console.log("📥 Payload izquierdo:", L);
+console.log("📥 Payload derecho:", R);
+
   }, [cursor, origin, pax]);
 
   useEffect(() => {
