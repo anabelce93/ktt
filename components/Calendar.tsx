@@ -55,15 +55,17 @@ export default function Calendar({
       return await res.json();
     };
 
-    Promise.all([
-      fetchMonth(leftYear, leftMonth),
-      fetchMonth(rightYear, rightMonth),
-    ]).then(([L, R]) => {
-      setLeft(L);
-      setRight(R);
-    });
-    console.log("📥 Payload izquierdo:", L);
-console.log("📥 Payload derecho:", R);
+Promise.all([
+  fetchMonth(leftYear, leftMonth),
+  fetchMonth(rightYear, rightMonth),
+]).then(([L, R]) => {
+  setLeft(L);
+  setRight(R);
+
+  console.log("📥 Payload izquierdo:", L);
+  console.log("📥 Payload derecho:", R);
+});
+
 
   }, [cursor, origin, pax]);
 
