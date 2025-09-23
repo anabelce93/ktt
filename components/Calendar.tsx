@@ -84,16 +84,6 @@ export default function Calendar({
     load();
   }, [cursor, origin, pax]);
 
-  useEffect(() => {
-    const handler = (ev: any) => {
-      const { dep, ret } = ev.detail;
-      setSelectedStart(dep);
-      onSelect?.({ dep, ret });
-    };
-    window.addEventListener("calendar:select", handler);
-    return () => window.removeEventListener("calendar:select", handler);
-  }, [onSelect]);
-
   const next = () => {
     const nextCursor = cursor.add(1, "month");
     setCursor(nextCursor);
@@ -110,22 +100,10 @@ export default function Calendar({
     <div className="flex flex-col gap-4">
       <div className="flex justify-between mb-2">
         {!isAtMinMonth && (
-          <button
-            className="btn btn-secondary"
-            onClick={prev}
-            aria-label="Mes anterior"
-          >
-            ‹
-          </button>
+          <button className="btn btn-secondary" onClick={prev} aria-label="Mes anterior">‹</button>
         )}
         {!isAtMaxMonth && (
-          <button
-            className="btn btn-secondary"
-            onClick={next}
-            aria-label="Mes siguiente"
-          >
-            ›
-          </button>
+          <button className="btn btn-secondary" onClick={next} aria-label="Mes siguiente">›</button>
         )}
       </div>
 
@@ -139,6 +117,10 @@ export default function Calendar({
             baseMonth={cursor.month()}
             payload={left}
             selectedStart={selectedStart}
+            onSelect={(range) => {
+              setSelectedStart(range.dep);
+              onSelect?.(range);
+            }}
           />
           <MonthGrid
             title={cursor.add(1, "month").format("MMMM")}
@@ -146,6 +128,10 @@ export default function Calendar({
             baseMonth={cursor.add(1, "month").month()}
             payload={right}
             selectedStart={selectedStart}
+            onSelect={(range) => {
+              setSelectedStart(range.dep);
+              onSelect?.(range);
+            }}
           />
         </div>
       )}
@@ -159,12 +145,14 @@ function MonthGrid({
   baseMonth,
   payload,
   selectedStart,
+  onSelect,
 }: {
   title: string;
   baseYear: number;
   baseMonth: number;
   payload: CalendarPayload | null;
   selectedStart?: string | null;
+  onSelect?: (range: { dep: string; ret: string }) => void;
 }) {
   const firstDay = dayjs(new Date(baseYear, baseMonth, 1));
   const startWeekDay = firstDay.day();
@@ -220,22 +208,21 @@ function MonthGrid({
                 if (!c.info?.show) return;
                 const dep = c.iso!;
                 const ret = addDaysISO(dep, TRIP_LEN - 1);
-                const ev = new CustomEvent("calendar:select", { detail: { dep, ret } });
-                window.dispatchEvent(ev as any);
+                onSelect?.({ dep, ret });
               }}
             >
               <div className="text-sm font-medium">{c.day}</div>
               <div className="text-[11px] mt-1">
                 {typeof c.info?.priceFrom === "number"
-  ? `${Math.round(c.info.priceFrom + c.info.baseFare)}€`
-  : "–"}
+                  ? `${Math.round(c.info.priceFrom + c.info.baseFare)}€`
+                  : "–"}
               </div>
             </button>
           );
         })}
       </div>
-      
-            {!hasPrices && (
+
+      {!hasPrices && (
         <div className="text-center text-sm text-gray-500 mt-4">
           No hay disponibilidad para este mes.
         </div>
@@ -243,4 +230,3 @@ function MonthGrid({
     </div>
   );
 }
-
