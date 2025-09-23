@@ -3,7 +3,8 @@
 import React, { useState } from "react";
 import StepHeader from "./StepHeader";
 import Calendar from "./Calendar";
-import FlightsList, { FlightOption } from "./FlightsList";
+import FlightsList from "./FlightsList";
+import { FlightOption } from "@/lib/types";
 import SummaryPanel from "./SummaryPanel";
 
 type Step = "op" | "cal" | "flights" | "hot" | "ins" | "sum";
