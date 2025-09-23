@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { buildCalendarGrid, addDaysISO } from "@/lib/calendar";
 import { TRIP_LEN, CalendarDay, CalendarPayload, RoundTripSearch } from "@/lib/types";
 import { searchRoundTripBoth } from "@/lib/duffel";
+import { cacheGet, cacheSet } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,22 +17,31 @@ export async function GET(req: Request) {
   const pax = Number(searchParams.get("pax") || 2);
   const year = Number(searchParams.get("year"));
   const month = Number(searchParams.get("month"));
-  if (month < 0 || month > 11) {
-  return NextResponse.json({ error: "Mes fuera de rango (0–11)" }, { status: 400 });
-}
   const debug = searchParams.get("debug") === "1";
+  const forceRefresh = searchParams.get("forceRefresh") === "1" || searchParams.get("nocache") === "1";
 
   if (!year || !month) {
     return NextResponse.json({ error: "year y month requeridos" }, { status: 400 });
   }
 
-  // ✅ CORREGIDO: convertir mes a 1–12 para buildCalendarGrid
-  const grid = buildCalendarGrid(year, month + 1);
+  if (month < 0 || month > 11) {
+    return NextResponse.json({ error: "Mes fuera de rango (0–11)" }, { status: 400 });
+  }
+
+  const cacheKey = `calendar:${origin}:${year}:${month}`;
+  if (!forceRefresh) {
+    const cached = await cacheGet<CalendarPayload>(cacheKey);
+    if (cached) {
+      console.log("📦 Redis HIT:", cacheKey);
+      return NextResponse.json(cached);
+    }
+  }
+
+  const grid = buildCalendarGrid(year, month + 1); // ✅ CORREGIDO: convertir a 1–12
   const inMonthCells = grid.filter(c => c.inMonth);
   const days: CalendarDay[] = new Array(inMonthCells.length);
   let firstDiag: any = undefined;
 
-  // ✅ LOG GENERAL DEL MES
   console.log("📦 Mes procesado:", year, month + 1, "→ días:", inMonthCells.length);
 
   await Promise.all(
@@ -50,7 +60,6 @@ export async function GET(req: Request) {
 
         const cheapest = options[0]?.total_amount_per_person ?? null;
 
-        // ✅ LOG POR DÍA
         console.log("🔍 Día:", dep, "→ opciones:", options.length, "precio:", cheapest);
 
         if (!firstDiag && diag) firstDiag = diag;
@@ -82,8 +91,11 @@ export async function GET(req: Request) {
   };
 
   if (debug && firstDiag) payload.diag = firstDiag;
-  
-console.log("✅ Payload final:", JSON.stringify(payload, null, 2));
-  
+
+  // ✅ Guardar en Redis por 6 horas
+  await cacheSet(cacheKey, payload, 60 * 60 * 6);
+
+  console.log("✅ Payload final:", JSON.stringify(payload, null, 2));
+
   return NextResponse.json(payload);
 }
