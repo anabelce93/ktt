@@ -80,6 +80,10 @@ function MonthGrid({
       <div className="grid grid-cols-7 gap-2">
         {cells.map((c, idx) => {
           if (!c.iso || !c.day) return <div key={idx} className="h-12" />;
+
+          // 🔍 Log de depuración
+          console.log("Día:", c.iso, "Mostrar:", c.info?.show, "Precio:", c.info?.priceFrom);
+
           const isStart = same(c.iso, startISO || undefined);
           const partOfTrip = startISO && endISO ? inRange(c.iso, startISO, endISO) : false;
 
@@ -126,6 +130,7 @@ function MonthGrid({
     </div>
   );
 }
+
 export default function Calendar({ origin, pax, onSelect }: Props) {
   const [cursor, setCursor] = useState(dayjs().add(1, "month").startOf("month"));
   const [payloadLeft, setPayloadLeft] = useState<CalendarPayload | null>(null);
@@ -222,18 +227,4 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
           title={cursor.format("MMMM YYYY")}
           baseYear={leftYear}
           baseMonth={leftMonth}
-          payload={payloadLeft}
-          selectedStart={selected?.dep}
-        />
-        <MonthGrid
-          title={right.format("MMMM YYYY")}
-          baseYear={rightYear}
-          baseMonth={rightMonth}
-          payload={payloadRight}
-          selectedStart={selected?.dep}
-        />
-      </div>
-    </div>
-  );
-}
-```
+          payload={
