@@ -242,4 +242,5 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
       </div>
     </div>
   );
+}
 
