@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import dayjs from "dayjs";
-import { CalendarPayload, DayPayload } from "@/lib/types";
-import { addDaysISO, buildCalendarGrid } from "@/lib/calendar";
+import { CalendarPayload } from "@/lib/types";
+import { addDaysISO } from "@/lib/calendar";
 
 const TRIP_LEN = 10;
 
@@ -14,6 +14,13 @@ function same(a?: string, b?: string) {
 function inRange(x: string, start: string, end: string) {
   return x >= start && x <= end;
 }
+
+type DayPayload = {
+  date: string;
+  show: boolean;
+  priceFrom: number | null;
+  baseFare: number;
+};
 
 export default function Calendar({
   origin,
@@ -35,8 +42,8 @@ export default function Calendar({
   const [right, setRight] = useState<CalendarPayload | null>(null);
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
 
-  const maxMonth = dayjs().add(10, "month").startOf("month");
   const minMonth = dayjs().add(1, "month").startOf("month");
+  const maxMonth = dayjs().add(10, "month").startOf("month");
   const isAtMinMonth = cursor.isSame(minMonth, "month");
   const isAtMaxMonth = cursor.isSame(maxMonth, "month");
 
@@ -47,8 +54,6 @@ export default function Calendar({
     const rightYear = right.year();
     const rightMonth = right.month();
 
-    console.log("📦 Enviando a API:", leftYear, leftMonth, "y", rightYear, rightMonth);
-
     const fetchMonth = async (year: number, month: number) => {
       const res = await fetch(
         `/api/calendar-prices?origin=${origin}&pax=${pax}&year=${year}&month=${month}`
@@ -56,18 +61,15 @@ export default function Calendar({
       return await res.json();
     };
 
-Promise.all([
-  fetchMonth(leftYear, leftMonth),
-  fetchMonth(rightYear, rightMonth),
-]).then(([L, R]) => {
-  setLeft(L);
-  setRight(R);
-
-  console.log("📥 Payload izquierdo:", L);
-  console.log("📥 Payload derecho:", R);
-});
-
-
+    Promise.all([
+      fetchMonth(leftYear, leftMonth),
+      fetchMonth(rightYear, rightMonth),
+    ]).then(([L, R]) => {
+      setLeft(L);
+      setRight(R);
+      console.log("📥 Payload izquierdo:", L);
+      console.log("📥 Payload derecho:", R);
+    });
   }, [cursor, origin, pax]);
 
   useEffect(() => {
@@ -94,6 +96,27 @@ Promise.all([
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex justify-between mb-2">
+        {!isAtMinMonth && (
+          <button
+            className="btn btn-secondary"
+            onClick={prev}
+            aria-label="Mes anterior"
+          >
+            ‹
+          </button>
+        )}
+        {!isAtMaxMonth && (
+          <button
+            className="btn btn-secondary"
+            onClick={next}
+            aria-label="Mes siguiente"
+          >
+            ›
+          </button>
+        )}
+      </div>
+
       <div className="flex gap-4 items-start">
         <MonthGrid
           title={cursor.format("MMMM")}
@@ -109,27 +132,6 @@ Promise.all([
           payload={right}
           selectedStart={selectedStart}
         />
-      </div>
-      <div className="flex justify-between mt-2">
-        {!isAtMinMonth && (
-          <button
-            className="btn btn-secondary"
-            onClick={prev}
-            aria-label="Mes anterior"
-          >
-            ‹
-          </button>
-        )}
-        <div className="flex justify-between mt-2">
-        {!isAtMaxMonth && (
-          <button
-            className="btn btn-secondary"
-            onClick={next}
-            aria-label="Mes siguiente"
-          >
-            ›
-          </button>
-        )}
       </div>
     </div>
   );
@@ -225,4 +227,3 @@ function MonthGrid({
     </div>
   );
 }
-
