@@ -227,4 +227,6 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
           title={cursor.format("MMMM YYYY")}
           baseYear={leftYear}
           baseMonth={leftMonth}
-          payload={
+          payload={payloadLeft}
+          selectedStart={selected?.dep}
+        />
