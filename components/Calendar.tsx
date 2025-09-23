@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import dayjs from "dayjs";
 import { CalendarPayload } from "@/lib/types";
 import { addDaysISO } from "@/lib/calendar";
@@ -41,6 +41,9 @@ export default function Calendar({
   const [left, setLeft] = useState<CalendarPayload | null>(null);
   const [right, setRight] = useState<CalendarPayload | null>(null);
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const cacheRef = useRef<Map<string, CalendarPayload>>(new Map());
 
   const minMonth = dayjs().add(1, "month").startOf("month");
   const maxMonth = dayjs().add(10, "month").startOf("month");
@@ -54,6 +57,9 @@ export default function Calendar({
     const rightYear = right.year();
     const rightMonth = right.month();
 
+    const keyL = `${origin}:${pax}:${leftYear}:${leftMonth}`;
+    const keyR = `${origin}:${pax}:${rightYear}:${rightMonth}`;
+
     const fetchMonth = async (year: number, month: number) => {
       const res = await fetch(
         `/api/calendar-prices?origin=${origin}&pax=${pax}&year=${year}&month=${month}`
@@ -61,15 +67,21 @@ export default function Calendar({
       return await res.json();
     };
 
-    Promise.all([
-      fetchMonth(leftYear, leftMonth),
-      fetchMonth(rightYear, rightMonth),
-    ]).then(([L, R]) => {
+    const load = async () => {
+      setLoading(true);
+
+      const L = cacheRef.current.get(keyL) || await fetchMonth(leftYear, leftMonth);
+      const R = cacheRef.current.get(keyR) || await fetchMonth(rightYear, rightMonth);
+
+      cacheRef.current.set(keyL, L);
+      cacheRef.current.set(keyR, R);
+
       setLeft(L);
       setRight(R);
-      console.log("📥 Payload izquierdo:", L);
-      console.log("📥 Payload derecho:", R);
-    });
+      setLoading(false);
+    };
+
+    load();
   }, [cursor, origin, pax]);
 
   useEffect(() => {
@@ -117,22 +129,26 @@ export default function Calendar({
         )}
       </div>
 
-      <div className="flex gap-4 items-start">
-        <MonthGrid
-          title={cursor.format("MMMM")}
-          baseYear={cursor.year()}
-          baseMonth={cursor.month()}
-          payload={left}
-          selectedStart={selectedStart}
-        />
-        <MonthGrid
-          title={cursor.add(1, "month").format("MMMM")}
-          baseYear={cursor.add(1, "month").year()}
-          baseMonth={cursor.add(1, "month").month()}
-          payload={right}
-          selectedStart={selectedStart}
-        />
-      </div>
+      {loading ? (
+        <div className="text-center text-sm text-gray-500 py-8">Cargando precios…</div>
+      ) : (
+        <div className="flex gap-4 items-start">
+          <MonthGrid
+            title={cursor.format("MMMM")}
+            baseYear={cursor.year()}
+            baseMonth={cursor.month()}
+            payload={left}
+            selectedStart={selectedStart}
+          />
+          <MonthGrid
+            title={cursor.add(1, "month").format("MMMM")}
+            baseYear={cursor.add(1, "month").year()}
+            baseMonth={cursor.add(1, "month").month()}
+            payload={right}
+            selectedStart={selectedStart}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -218,8 +234,8 @@ function MonthGrid({
           );
         })}
       </div>
-
-      {!hasPrices && (
+      
+            {!hasPrices && (
         <div className="text-center text-sm text-gray-500 mt-4">
           No hay disponibilidad para este mes.
         </div>
@@ -227,3 +243,4 @@ function MonthGrid({
     </div>
   );
 }
+
