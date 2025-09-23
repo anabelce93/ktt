@@ -232,9 +232,16 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
           payload={payloadLeft}
           selectedStart={selected?.dep}
         />
+          <div className="hidden md:flex md:flex-1">
+          <MonthGrid
+            title={right.format("MMMM YYYY")}
+            baseYear={rightYear}
+            baseMonth={rightMonth}
+            payload={payloadRight}
+            selectedStart={selected?.dep}
+          />
         </div>
       </div>
     </div>
   );
 }
-
