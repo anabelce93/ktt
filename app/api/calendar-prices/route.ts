@@ -16,6 +16,9 @@ export async function GET(req: Request) {
   const pax = Number(searchParams.get("pax") || 2);
   const year = Number(searchParams.get("year"));
   const month = Number(searchParams.get("month"));
+  if (month < 0 || month > 11) {
+  return NextResponse.json({ error: "Mes fuera de rango (0–11)" }, { status: 400 });
+}
   const debug = searchParams.get("debug") === "1";
 
   if (!year || !month) {
