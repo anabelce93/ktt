@@ -3,6 +3,7 @@ import { buildCalendarGrid, addDaysISO } from "@/lib/calendar";
 import { TRIP_LEN, CalendarDay, CalendarPayload, RoundTripSearch } from "@/lib/types";
 import { searchRoundTripBoth } from "@/lib/duffel";
 import { cacheGet, cacheSet } from "@/lib/cache";
+import { baseFarePerPerson } from "@/lib/pricing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,7 +69,7 @@ export async function GET(req: Request) {
           date: dep,
           show: cheapest !== null,
           priceFrom: cheapest,
-          baseFare: BASE_FARE,
+          baseFare: baseFarePerPerson(dep, pax),
         };
       } catch (error) {
         console.error("❌ Error en día:", dep, error);
