@@ -1,9 +1,9 @@
-// lib/duffel.ts
 import { RoundTripSearch, FlightOption, SegmentInfo } from "@/lib/types";
+import { minutesBetween } from "@/lib/format";
 
 const RAW_TOKEN = process.env.DUFFEL_TOKEN || process.env.DUFFEL_API_KEY || "";
 const AUTH = RAW_TOKEN.startsWith("Bearer ") ? RAW_TOKEN : `Bearer ${RAW_TOKEN}`;
-const DUFFEL_VERSION = process.env.DUFFEL_VERSION || "v2"; // v2 por defecto
+const DUFFEL_VERSION = process.env.DUFFEL_VERSION || "v2";
 
 function parseDurationToMinutes(iso?: string) {
   if (!iso) return undefined;
@@ -24,7 +24,6 @@ export async function searchRoundTripBoth(
 ): Promise<{ options: FlightOption[]; diag?: DuffelDiag[] }> {
   const diag: DuffelDiag[] = [];
 
-  // Slices: BCN->ICN y ICN->BCN. Si quieres añadir GMP, lo hacemos luego.
   const offerReq = {
     data: {
       passengers: Array.from({ length: pax }, () => ({ type: "adult" })),
@@ -36,7 +35,6 @@ export async function searchRoundTripBoth(
     }
   };
 
-  // v2: podemos pedir las ofertas inline
   const r = await fetch("https://api.duffel.com/air/offer_requests?return_offers=true", {
     method: "POST",
     headers: {
@@ -55,20 +53,11 @@ export async function searchRoundTripBoth(
   }
 
   const req = await r.json();
-
-  // 1) Intentar ofertas inline (v2)
-  const inlineOffers: any[] =
-    req?.data?.offers?.data || req?.data?.offers || req?.included_offers || [];
-
+  const inlineOffers: any[] = req?.data?.offers?.data || req?.data?.offers || req?.included_offers || [];
   let offers: any[] = inlineOffers;
 
-  // 2) Si no vinieron inline, seguir link (back-compat)
   if (!offers?.length) {
-    const offersUrl =
-      req?.data?.offers?.links?.self ||
-      req?.data?.links?.offers ||
-      req?.data?.links?.offers_url;
-
+    const offersUrl = req?.data?.offers?.links?.self || req?.data?.links?.offers || req?.data?.links?.offers_url;
     if (offersUrl) {
       const r2 = await fetch(offersUrl, {
         headers: { Authorization: AUTH, "Duffel-Version": DUFFEL_VERSION },
@@ -100,8 +89,7 @@ export async function searchRoundTripBoth(
     const back = mapSegs(retSlice);
 
     const perPerson = Math.round(Number(o.total_amount || 0) / Math.max(1, pax));
-    const airlineCodes = Array.from(new Set([...out, ...back]
-      .map(s => s.marketing_carrier).filter(Boolean))) as string[];
+    const airlineCodes = Array.from(new Set([...out, ...back].map(s => s.marketing_carrier).filter(Boolean))) as string[];
 
     return {
       id: o.id,
@@ -113,7 +101,21 @@ export async function searchRoundTripBoth(
       airline_codes: airlineCodes,
     };
   })
-  .filter(x => Number.isFinite(x.total_amount_per_person) && x.total_amount_per_person > 0)
+  .filter(x => {
+    const escalaOk = (segs: SegmentInfo[]) => {
+      if (segs.length <= 1) return true;
+      const layover = minutesBetween(segs[0].arrival, segs[1].departure);
+      return layover <= 720;
+    };
+
+    return (
+      x.out.length <= 2 &&
+      x.ret.length <= 2 &&
+      escalaOk(x.out) &&
+      escalaOk(x.ret) &&
+      x.baggage_included
+    );
+  })
   .sort((a, b) => a.total_amount_per_person - b.total_amount_per_person)
   .slice(0, limit);
 
@@ -121,10 +123,10 @@ export async function searchRoundTripBoth(
     diag.push({ step: "no_offers_returned", body: { inlineCount: inlineOffers?.length ?? 0 } });
   }
 
-  return { options, diag: diag.length ? diag : undefined };
+   return { options, diag: diag.length ? diag : undefined };
 }
 
-export async function cheapestFor(args: RoundTripSearch): Promise<{ price: number|null; diag?: DuffelDiag[] }> {
+export async function cheapestFor(args: RoundTripSearch): Promise<{ price: number | null; diag?: DuffelDiag[] }> {
   const { options, diag } = await searchRoundTripBoth({ ...args, limit: 1 });
   return { price: options[0]?.total_amount_per_person ?? null, diag };
 }
