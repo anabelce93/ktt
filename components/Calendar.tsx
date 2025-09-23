@@ -222,6 +222,14 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
         )}
       </div>
 
+           <div className="flex flex-col md:flex-row md:gap-10">
+        <MonthGrid
+          title={cursor.format("MMMM YYYY")}
+          baseYear={leftYear}
+          baseMonth={leftMonth}
+          payload={payloadLeft}
+          selectedStart={selected?.dep}
+        />
         <div className="hidden md:flex md:flex-1">
           <MonthGrid
             title={right.format("MMMM YYYY")}
@@ -234,4 +242,4 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
       </div>
     </div>
   );
-}
+
