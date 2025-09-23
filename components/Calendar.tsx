@@ -36,7 +36,8 @@ export default function Calendar({
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
 
   const maxMonth = dayjs().add(10, "month").startOf("month");
-  const isAtMinMonth = cursor.isSame(dayjs().startOf("month"), "month");
+  const minMonth = dayjs().add(1, "month").startOf("month");
+  const isAtMinMonth = cursor.isSame(minMonth, "month");
   const isAtMaxMonth = cursor.isSame(maxMonth, "month");
 
   useEffect(() => {
