@@ -74,17 +74,14 @@ function MonthGrid({
       <div className="text-center font-semibold mb-2 capitalize">{title}</div>
       <div className="grid grid-cols-7 text-xs opacity-70 mb-1">
         {["L", "M", "X", "J", "V", "S", "D"].map((d) => (
-          <div key={d} className="text-center py-1">
-            {d}
-          </div>
+          <div key={d} className="text-center py-1">{d}</div>
         ))}
       </div>
       <div className="grid grid-cols-7 gap-2">
         {cells.map((c, idx) => {
           if (!c.iso || !c.day) return <div key={idx} className="h-12" />;
           const isStart = same(c.iso, startISO || undefined);
-          const partOfTrip =
-            startISO && endISO ? inRange(c.iso, startISO, endISO) : false;
+          const partOfTrip = startISO && endISO ? inRange(c.iso, startISO, endISO) : false;
 
           let bg = "";
           let text = "text-black";
@@ -129,7 +126,6 @@ function MonthGrid({
     </div>
   );
 }
-
 export default function Calendar({ origin, pax, onSelect }: Props) {
   const [cursor, setCursor] = useState(dayjs().add(1, "month").startOf("month"));
   const [payloadLeft, setPayloadLeft] = useState<CalendarPayload | null>(null);
@@ -143,7 +139,9 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
   const rightMonth = right.month();
 
   const minMonth = dayjs().add(1, "month").startOf("month");
+  const maxMonth = dayjs().add(10, "month").startOf("month");
   const isAtMinMonth = cursor.isSame(minMonth, "month");
+  const isAtMaxMonth = cursor.isSame(maxMonth.subtract(1, "month"), "month");
 
   useEffect(() => {
     const onPick = (e: any) => {
@@ -208,9 +206,15 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
           </button>
         )}
         <div className="text-sm font-semibold opacity-0">.</div>
-        <button className="btn btn-secondary" onClick={next} aria-label="Mes siguiente">
-          ›
-        </button>
+        {!isAtMaxMonth && (
+          <button
+            className="btn btn-secondary"
+            onClick={next}
+            aria-label="Mes siguiente"
+          >
+            ›
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col md:flex-row md:gap-10">
@@ -221,16 +225,15 @@ export default function Calendar({ origin, pax, onSelect }: Props) {
           payload={payloadLeft}
           selectedStart={selected?.dep}
         />
-        <div className="hidden md:flex md:flex-1">
-          <MonthGrid
-            title={right.format("MMMM YYYY")}
-            baseYear={rightYear}
-            baseMonth={rightMonth}
-            payload={payloadRight}
-            selectedStart={selected?.dep}
-          />
-        </div>
+        <MonthGrid
+          title={right.format("MMMM YYYY")}
+          baseYear={rightYear}
+          baseMonth={rightMonth}
+          payload={payloadRight}
+          selectedStart={selected?.dep}
+        />
       </div>
     </div>
   );
 }
+```
