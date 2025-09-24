@@ -3,6 +3,7 @@ export const revalidate = 0;
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
+import { prewarmMonth } from "@/lib/calendar";
 
 // limitador muy simple para no disparar demasiadas peticiones a la vez
 function pLimit(concurrency: number) {
@@ -57,7 +58,6 @@ function nextMonths(count: number): { year: number; month: number }[] {
 
 export async function GET(req: NextRequest) {
   const url = req.nextUrl;
-  const base = `${url.origin}/api/calendar-prices`;
 
   const origins = (url.searchParams.get("origins") || "BCN,MAD,VLC,AGP,LPA")
     .split(",")
@@ -86,17 +86,17 @@ export async function GET(req: NextRequest) {
   for (const origin of origins) {
     for (const pax of paxList) {
       for (const t of targets) {
-        const targetUrl = `${base}?origin=${origin}&pax=${pax}&year=${t.year}&month=${t.month}`;
+        const t0 = Date.now();
+        const label = `origin=${origin}&pax=${pax}&year=${t.year}&month=${t.month}`;
         jobs.push(
           limit(async () => {
-            const t0 = Date.now();
             try {
-              const res = await fetch(targetUrl, { cache: "no-store" });
+              await prewarmMonth(origin, pax, t.year, t.month);
               const ms = Date.now() - t0;
-              return { ok: res.ok, url: targetUrl, ms, status: res.status };
-            } catch {
+              return { ok: true, url: label, ms };
+            } catch (err: any) {
               const ms = Date.now() - t0;
-              return { ok: false, url: targetUrl, ms };
+              return { ok: false, url: label, ms, status: err?.status || 500 };
             }
           })
         );
